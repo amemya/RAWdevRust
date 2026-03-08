@@ -1,3 +1,8 @@
+## editor
+.vscode/
+.idea/
+
+
 ## macOS
 .DS_Store
 
@@ -6,3 +11,6 @@ reference/
 
 ## rust
 target/
+
+## debug output
+*.ppm
