@@ -58,9 +58,10 @@ pub fn load(path: &Path) -> anyhow::Result<RawData> {
                 [flat[3], flat[4], flat[5]],
                 [flat[6], flat[7], flat[8]],
             ];
-            // 各行をその和で正規化（cam_to_xyz_normalized 相当）
-            // 目的: xyz=[1,1,1](白色光) に対して各 cam チャネルが 1.0 になるよう揃える
-            // → これにより cam=[1,1,1] が XYZ=[1,1,1] にマップされ白点が合う
+            // 各行をその和で1になるよう正規化
+            // 目的: 定数ベクトル XYZ=[1,1,1]（等エネルギー白）を入力したとき、出力が cam=[1,1,1] となるように各行のスケールを調整するための処理。
+            // 実際の標準テスト光源（D50/D65等）のXYZ値は(1,1,1)ではないが、カラーマトリクス適用後の
+            // ホワイトバランス処理等との兼ね合いで、XYZ=[1,1,1] → cam=[1,1,1] の対応関係を作るための正規化。
             let mut xyz2cam = xyz2cam_raw;
             for row in &mut xyz2cam {
                 let sum: f32 = row.iter().sum();

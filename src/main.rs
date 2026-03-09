@@ -32,12 +32,12 @@ fn main() {
     );
 
     // デモザイク（RCD）→ linear Camera RGB
-    let cam_rgb = demosaic::rcd::run(&raw);
+    let mut linear = demosaic::rcd::run(&raw);
 
-    // カラーパイプライン
-    let wb = color::apply_wb(&cam_rgb, &raw.wb_coeffs);
-    let srgb_linear = color::apply_color_matrix(&wb, &raw.cam_to_xyz, raw.cam_to_xyz_is_d65);
-    let rgb = color::apply_gamma(&srgb_linear);
+    // カラーパイプライン (in-place処理により中間Vecアロケーションを削減)
+    color::apply_wb(&mut linear, &raw.wb_coeffs);
+    color::apply_color_matrix(&mut linear, &raw.cam_to_xyz, raw.cam_to_xyz_is_d65);
+    let rgb = color::apply_gamma(&linear);
 
     // 出力
     output::save_ppm(&rgb, raw.width, raw.height, &cli.output)
