@@ -13,6 +13,8 @@ pub fn apply_wb(pixels: &mut [f32], wb_coeffs: &[f32; 4]) {
     let wg = 1.0f32;
     let wb = wb_coeffs[2] / wb_coeffs[1];
 
+    debug_assert!(pixels.len() % 3 == 0, "apply_wb expects RGBRGB... packed array");
+
     for p in pixels.chunks_exact_mut(3) {
         // ハイライトの早期クリップを防ぐため、ここではクランプしない。
         // マトリクス適用後にクランプする
@@ -28,6 +30,8 @@ pub fn apply_wb(pixels: &mut [f32], wb_coeffs: &[f32; 4]) {
 /// is_d65:      true なら D65 ベース → Bradford 適応不要
 ///              false なら D50 ベース → Bradford D50→D65 を挟む
 pub fn apply_color_matrix(pixels: &mut [f32], cam_to_xyz: &[[f32; 4]; 3], is_d65: bool) {
+    debug_assert!(pixels.len() % 3 == 0, "apply_color_matrix expects RGBRGB... packed array");
+
     // XYZ(D65) → linear sRGB 行列（IEC 61966-2-1）
     #[rustfmt::skip]
     let xyz_to_srgb: [[f32; 3]; 3] = [

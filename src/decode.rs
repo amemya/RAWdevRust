@@ -51,18 +51,19 @@ pub fn load(path: &Path) -> anyhow::Result<RawData> {
         };
 
         if let Some(flat) = flat {
-            // FlatColorMatrix は行優先 xyz_to_cam: [cam][xyz]
-            // 最初の 9 値 (3cam × 3xyz) を使用
-            let xyz2cam_raw = [
-                [flat[0], flat[1], flat[2]],
-                [flat[3], flat[4], flat[5]],
-                [flat[6], flat[7], flat[8]],
-            ];
-            // 各行をその和で1になるよう正規化
-            // 目的: 定数ベクトル XYZ=[1,1,1]（等エネルギー白）を入力したとき、出力が cam=[1,1,1] となるように各行のスケールを調整するための処理。
-            // 実際の標準テスト光源（D50/D65等）のXYZ値は(1,1,1)ではないが、カラーマトリクス適用後の
-            // ホワイトバランス処理等との兼ね合いで、XYZ=[1,1,1] → cam=[1,1,1] の対応関係を作るための正規化。
-            let mut xyz2cam = xyz2cam_raw;
+            if flat.len() >= 9 {
+                // FlatColorMatrix は行優先 xyz_to_cam: [cam][xyz]
+                // 最初の 9 値 (3cam × 3xyz) を使用
+                let xyz2cam_raw = [
+                    [flat[0], flat[1], flat[2]],
+                    [flat[3], flat[4], flat[5]],
+                    [flat[6], flat[7], flat[8]],
+                ];
+                // 各行をその和で1になるよう正規化
+                // 目的: 定数ベクトル XYZ=[1,1,1]（等エネルギー白）を入力したとき、出力が cam=[1,1,1] となるように各行のスケールを調整するための処理。
+                // 実際の標準テスト光源（D50/D65等）のXYZ値は(1,1,1)ではないが、カラーマトリクス適用後の
+                // ホワイトバランス処理等との兼ね合いで、XYZ=[1,1,1] → cam=[1,1,1] の対応関係を作るための正規化。
+                let mut xyz2cam = xyz2cam_raw;
             for row in &mut xyz2cam {
                 let sum: f32 = row.iter().sum();
                 if sum.abs() > 1e-10 {
@@ -70,17 +71,21 @@ pub fn load(path: &Path) -> anyhow::Result<RawData> {
                 }
             }
 
-            // 逆行列計算 → cam_to_xyz
-            let inv = mat3x3_inverse(&xyz2cam).unwrap_or_else(|| {
-                eprintln!("Warning: matrix inversion failed, using identity");
-                [[1.0,0.0,0.0],[0.0,1.0,0.0],[0.0,0.0,1.0]]
-            });
-            let m = [
-                [inv[0][0], inv[0][1], inv[0][2], 0.0],
-                [inv[1][0], inv[1][1], inv[1][2], 0.0],
-                [inv[2][0], inv[2][1], inv[2][2], 0.0],
-            ];
-            (m, is_d65)
+                // 逆行列計算 → cam_to_xyz
+                let inv = mat3x3_inverse(&xyz2cam).unwrap_or_else(|| {
+                    eprintln!("Warning: matrix inversion failed, using identity");
+                    [[1.0,0.0,0.0],[0.0,1.0,0.0],[0.0,0.0,1.0]]
+                });
+                let m = [
+                    [inv[0][0], inv[0][1], inv[0][2], 0.0],
+                    [inv[1][0], inv[1][1], inv[1][2], 0.0],
+                    [inv[2][0], inv[2][1], inv[2][2], 0.0],
+                ];
+                (m, is_d65)
+            } else {
+                eprintln!("Warning: color_matrix length < 9 ({}), using identity", flat.len());
+                ([[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0]], true)
+            }
         } else {
             ([[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0]], true)
         }
