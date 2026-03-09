@@ -118,19 +118,24 @@ pub fn load(path: &Path) -> anyhow::Result<RawData> {
     let black_level = rawimage.blacklevel.as_bayer_array();
     let white_level = rawimage.whitelevel.as_bayer_array();
     let wb_coeffs = rawimage.wb_coeffs.map(|v| if v.is_nan() { 1.0 } else { v });
-    let active_area = rawimage.crop_area.or(rawimage.active_area);
+    
+    let is_crop_area = rawimage.crop_area.is_some();
+    let applied_area = rawimage.crop_area.or(rawimage.active_area);
 
     let pixels_full: Vec<u16> = match rawimage.data {
         RawImageData::Integer(data) => data,
         RawImageData::Float(_) => anyhow::bail!("Float RAW data is not supported yet"),
     };
 
-    let (pixels, width, height, cfa) = if let Some(area) = active_area {
+    let (pixels, width, height, cfa) = if let Some(area) = applied_area {
         let full_h = pixels_full.len() / full_width;
         let cropped = crop(&pixels_full, Dim2::new(full_width, full_h), area);
         let cfa_shifted = cfa_full.shift(area.x(), area.y());
+        
+        let label = if is_crop_area { "Crop area" } else { "Active area" };
         eprintln!(
-            "Active area: x={} y={} {}x{} (full: {}x{})",
+            "{}: x={} y={} {}x{} (full: {}x{})",
+            label,
             area.x(),
             area.y(),
             area.width(),
