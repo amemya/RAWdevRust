@@ -1,5 +1,4 @@
 use crate::decode::RawData;
-use super::linear_to_srgb;
 
 /// RCD (Ratio Corrected Demosaicing) デモザイク
 ///
@@ -9,20 +8,25 @@ use super::linear_to_srgb;
 ///   3. 比率マップを 3×3 平均フィルタで平滑化
 ///   4. 比率 × 補間済み緑 = R/B チャネルを復元
 ///
-/// output: Vec<u8> RGBRGB... (8bit sRGB ガンマ付き)
-pub fn run(raw: &RawData) -> Vec<u8> {
+/// output: Vec<f32> RGBRGB... linear Camera RGB（WB・ガンマなし）
+pub fn run(raw: &RawData) -> Vec<f32> {
     let w = raw.width;
     let h = raw.height;
 
     // ─── ブラックレベル減算 & [0,1] 正規化 ───────────────────────
-    let norm: Vec<f32> = raw.pixels.iter().enumerate().map(|(i, &p)| {
-        let row = i / w;
-        let col = i % w;
-        let bi = (row % 2) * 2 + (col % 2);
-        let bl = raw.black_level[bi];
-        let wl = raw.white_level[bi];
-        ((p as f32 - bl) / (wl - bl)).clamp(0.0, 1.0)
-    }).collect();
+    let norm: Vec<f32> = raw
+        .pixels
+        .iter()
+        .enumerate()
+        .map(|(i, &p)| {
+            let row = i / w;
+            let col = i % w;
+            let bi = (row % 2) * 2 + (col % 2);
+            let bl = raw.black_level[bi];
+            let wl = raw.white_level[bi];
+            ((p as f32 - bl) / (wl - bl)).clamp(0.0, 1.0)
+        })
+        .collect();
 
     // ─── Step 1: 緑チャネルの Hamilton-Adams 補間 ────────────────
     let green = interp_green(&norm, w, h, raw);
@@ -30,19 +34,14 @@ pub fn run(raw: &RawData) -> Vec<u8> {
     // ─── Step 2 & 3: R/G・B/G 比率マップ生成 & 平滑化 ────────────
     let (ratio_r, ratio_b) = build_ratio_maps(&norm, &green, w, h, raw);
 
-    // ─── Step 4: R/B 復元 ─────────────────────────────────────────
-    // ホワイトバランス係数（G基準正規化）
-    let wb_r = raw.wb_coeffs[0] / raw.wb_coeffs[1];
-    let wb_b = raw.wb_coeffs[2] / raw.wb_coeffs[1];
-
+    // ─── Step 4: R/B 復元（WB・ガンマは color.rs で適用）─────────
     let mut out = Vec::with_capacity(w * h * 3);
     for i in 0..w * h {
-        let r = (ratio_r[i] * green[i] * wb_r).clamp(0.0, 1.0);
-        let g = green[i].clamp(0.0, 1.0);
-        let b = (ratio_b[i] * green[i] * wb_b).clamp(0.0, 1.0);
-        out.push(linear_to_srgb(r));
-        out.push(linear_to_srgb(g));
-        out.push(linear_to_srgb(b));
+        // [0,1] でクランプすると、1.0 を超えたデータを失いハイライトで色がおかしくなる（早期クリップ）
+        // そのため、ここではクランプせずに linear 値のまま保持し、カラーマトリクス適用後にクランプする
+        out.push(ratio_r[i] * green[i]);
+        out.push(green[i]);
+        out.push(ratio_b[i] * green[i]);
     }
     out
 }
@@ -80,22 +79,24 @@ fn interp_green(norm: &[f32], w: usize, h: usize, raw: &RawData) -> Vec<f32> {
                 // 水平方向の差分・勾配
                 // G_h = (G[c-1]+G[c+1])/2 + (2*C[c]-C[c-2]-C[c+2])/4
                 let gh = 0.5 * (px(norm, w, h, r, c - 1) + px(norm, w, h, r, c + 1))
-                    + 0.25 * (2.0 * px(norm, w, h, r, c    )
+                    + 0.25
+                        * (2.0 * px(norm, w, h, r, c)
                             - px(norm, w, h, r, c - 2)
                             - px(norm, w, h, r, c + 2));
                 let dh = (px(norm, w, h, r, c - 1) - px(norm, w, h, r, c + 1)).abs()
-                    + (px(norm, w, h, r, c    ) - px(norm, w, h, r, c - 2)).abs()
-                    + (px(norm, w, h, r, c    ) - px(norm, w, h, r, c + 2)).abs();
+                    + (px(norm, w, h, r, c) - px(norm, w, h, r, c - 2)).abs()
+                    + (px(norm, w, h, r, c) - px(norm, w, h, r, c + 2)).abs();
 
                 // 垂直方向の差分・勾配
                 // G_v = (G[r-1]+G[r+1])/2 + (2*C[r]-C[r-2]-C[r+2])/4
                 let gv = 0.5 * (px(norm, w, h, r - 1, c) + px(norm, w, h, r + 1, c))
-                    + 0.25 * (2.0 * px(norm, w, h, r    , c)
+                    + 0.25
+                        * (2.0 * px(norm, w, h, r, c)
                             - px(norm, w, h, r - 2, c)
                             - px(norm, w, h, r + 2, c));
                 let dv = (px(norm, w, h, r - 1, c) - px(norm, w, h, r + 1, c)).abs()
-                    + (px(norm, w, h, r    , c) - px(norm, w, h, r - 2, c)).abs()
-                    + (px(norm, w, h, r    , c) - px(norm, w, h, r + 2, c)).abs();
+                    + (px(norm, w, h, r, c) - px(norm, w, h, r - 2, c)).abs()
+                    + (px(norm, w, h, r, c) - px(norm, w, h, r + 2, c)).abs();
 
                 green[idx] = if dh < dv {
                     gh
@@ -167,5 +168,3 @@ fn smooth_ratio(ratio_raw: &[f32], w: usize, h: usize, raw: &RawData, channel: u
     }
     out
 }
-
-
