@@ -26,10 +26,7 @@ fn main() {
 
     // デコード
     let raw = decode::load(&cli.input).expect("Failed to decode RAW file");
-    println!(
-        "Image: {}x{}, CFA: {:?}",
-        raw.width, raw.height, raw.cfa
-    );
+    println!("Image: {}x{}, CFA: {:?}", raw.width, raw.height, raw.cfa);
 
     // デモザイク（RCD）→ linear Camera RGB
     let mut linear = demosaic::rcd::run(&raw);
@@ -40,8 +37,7 @@ fn main() {
     let rgb = color::apply_gamma(&linear);
 
     // 出力
-    output::save_ppm(&rgb, raw.width, raw.height, &cli.output)
-        .expect("Failed to write output");
+    output::save_ppm(&rgb, raw.width, raw.height, &cli.output).expect("Failed to write output");
 
     println!("Done: {:?}", cli.output);
 }

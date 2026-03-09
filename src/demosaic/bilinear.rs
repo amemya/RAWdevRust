@@ -1,5 +1,5 @@
-use crate::decode::RawData;
 use super::linear_to_srgb;
+use crate::decode::RawData;
 
 /// Bilinear デモザイク
 /// output: Vec<u8> RGBRGB... (8bit sRGB)
@@ -9,16 +9,21 @@ pub fn run(raw: &RawData) -> Vec<u8> {
 
     // ブラックレベル減算 & [0.0, 1.0] 正規化
     // ベイヤー配列の各位置に対応するブラック/ホワイトレベルを使う
-    let normalized: Vec<f32> = raw.pixels.iter().enumerate().map(|(i, &p)| {
-        let row = i / w;
-        let col = i % w;
-        // ベイヤー2x2ブロック内の位置でbl/wlを選択
-        let bayer_idx = (row % 2) * 2 + (col % 2);
-        let bl = raw.black_level[bayer_idx];
-        let wl = raw.white_level[bayer_idx];
-        let v = p as f32 - bl;
-        (v / (wl - bl)).clamp(0.0, 1.0)
-    }).collect();
+    let normalized: Vec<f32> = raw
+        .pixels
+        .iter()
+        .enumerate()
+        .map(|(i, &p)| {
+            let row = i / w;
+            let col = i % w;
+            // ベイヤー2x2ブロック内の位置でbl/wlを選択
+            let bayer_idx = (row % 2) * 2 + (col % 2);
+            let bl = raw.black_level[bayer_idx];
+            let wl = raw.white_level[bayer_idx];
+            let v = p as f32 - bl;
+            (v / (wl - bl)).clamp(0.0, 1.0)
+        })
+        .collect();
 
     // R G B チャネルの既知値マスク
     let mut r = vec![0.0f32; w * h];
@@ -59,7 +64,6 @@ pub fn run(raw: &RawData) -> Vec<u8> {
     }
     out
 }
-
 
 /// 特定チャネルの Bilinear 補間（近傍の同チャネル画素の平均）
 fn interpolate(src: &[f32], w: usize, h: usize, raw: &RawData, channel: usize) -> Vec<f32> {

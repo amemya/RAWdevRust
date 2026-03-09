@@ -1,4 +1,5 @@
 use crate::demosaic::linear_to_srgb;
+use rawler::imgop::xyz::Illuminant;
 
 /// カラーパイプライン
 ///
@@ -13,7 +14,10 @@ pub fn apply_wb(pixels: &mut [f32], wb_coeffs: &[f32; 4]) {
     let wg = 1.0f32;
     let wb = wb_coeffs[2] / wb_coeffs[1];
 
-    assert!(pixels.len() % 3 == 0, "apply_wb expects RGBRGB... packed array");
+    assert!(
+        pixels.len() % 3 == 0,
+        "apply_wb expects RGBRGB... packed array"
+    );
 
     for p in pixels.chunks_exact_mut(3) {
         // ハイライトの早期クリップを防ぐため、ここではクランプしない。
@@ -24,15 +28,20 @@ pub fn apply_wb(pixels: &mut [f32], wb_coeffs: &[f32; 4]) {
     }
 }
 
-use rawler::imgop::xyz::Illuminant;
-
 /// Step 2: Camera RGB → linear sRGB
 ///
 /// cam_to_xyz:      rawimage.color_matrixから取得した cam_to_xyz [[f32;4];3]
 /// cam_illuminant:  color_matrix 導出時のテスト光源。
 ///                  D50 なら Bradford 適応で D65 に写し、それ以外（D65や未知）はそのまま利用
-pub fn apply_color_matrix(pixels: &mut [f32], cam_to_xyz: &[[f32; 4]; 3], cam_illuminant: Option<Illuminant>) {
-    assert!(pixels.len() % 3 == 0, "apply_color_matrix expects RGBRGB... packed array");
+pub fn apply_color_matrix(
+    pixels: &mut [f32],
+    cam_to_xyz: &[[f32; 4]; 3],
+    cam_illuminant: Option<Illuminant>,
+) {
+    assert!(
+        pixels.len() % 3 == 0,
+        "apply_color_matrix expects RGBRGB... packed array"
+    );
 
     // XYZ(D65) → linear sRGB 行列（IEC 61966-2-1）
     #[rustfmt::skip]
@@ -63,9 +72,7 @@ pub fn apply_color_matrix(pixels: &mut [f32], cam_to_xyz: &[[f32; 4]; 3], cam_il
             let adapted = mat3x3_mul(&bradford_d50_to_d65, &c2x);
             mat3x3_mul(&xyz_to_srgb, &adapted)
         }
-        Some(Illuminant::D65) => {
-            mat3x3_mul(&xyz_to_srgb, &c2x)
-        }
+        Some(Illuminant::D65) => mat3x3_mul(&xyz_to_srgb, &c2x),
         _ => {
             // 他の光源、または未知の場合は誤ったBradford適応を避ける
             mat3x3_mul(&xyz_to_srgb, &c2x)
@@ -90,7 +97,6 @@ pub fn apply_gamma(pixels: &[f32]) -> Vec<u8> {
 }
 
 // ─── 行列演算ヘルパー ──────────────────────────────────────────────────────
-
 
 /// 3×3 · 3×3 → 3×3
 fn mat3x3_mul(a: &[[f32; 3]; 3], b: &[[f32; 3]; 3]) -> [[f32; 3]; 3] {

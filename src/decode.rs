@@ -3,10 +3,7 @@ use std::path::Path;
 use rawler::{
     CFA,
     decoders::RawDecodeParams,
-    imgop::{
-        Dim2, crop,
-        xyz::Illuminant,
-    },
+    imgop::{Dim2, crop, xyz::Illuminant},
     rawimage::{RawImageData, RawPhotometricInterpretation},
     rawsource::RawSource,
 };
@@ -64,12 +61,14 @@ pub fn load(path: &Path) -> anyhow::Result<RawData> {
                 // 実際の標準テスト光源（D50/D65等）のXYZ値は(1,1,1)ではないが、カラーマトリクス適用後の
                 // ホワイトバランス処理等との兼ね合いで、XYZ=[1,1,1] → cam=[1,1,1] の対応関係を作るための正規化。
                 let mut xyz2cam = xyz2cam_raw;
-            for row in &mut xyz2cam {
-                let sum: f32 = row.iter().sum();
-                if sum.abs() > 1e-10 {
-                    for v in row.iter_mut() { *v /= sum; }
+                for row in &mut xyz2cam {
+                    let sum: f32 = row.iter().sum();
+                    if sum.abs() > 1e-10 {
+                        for v in row.iter_mut() {
+                            *v /= sum;
+                        }
+                    }
                 }
-            }
 
                 // 逆行列計算 → cam_to_xyz
                 let (inv, final_illuminant) = match mat3x3_inverse(&xyz2cam) {
@@ -87,11 +86,28 @@ pub fn load(path: &Path) -> anyhow::Result<RawData> {
                 ];
                 (m, final_illuminant)
             } else {
-                eprintln!("Warning: color_matrix length < 9 ({}), using identity", flat.len());
-                ([[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0]], None)
+                eprintln!(
+                    "Warning: color_matrix length < 9 ({}), using identity",
+                    flat.len()
+                );
+                (
+                    [
+                        [1.0, 0.0, 0.0, 0.0],
+                        [0.0, 1.0, 0.0, 0.0],
+                        [0.0, 0.0, 1.0, 0.0],
+                    ],
+                    None,
+                )
             }
         } else {
-            ([[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0]], None)
+            (
+                [
+                    [1.0, 0.0, 0.0, 0.0],
+                    [0.0, 1.0, 0.0, 0.0],
+                    [0.0, 0.0, 1.0, 0.0],
+                ],
+                None,
+            )
         }
     };
 
@@ -115,7 +131,12 @@ pub fn load(path: &Path) -> anyhow::Result<RawData> {
         let cfa_shifted = cfa_full.shift(area.x(), area.y());
         eprintln!(
             "Active area: x={} y={} {}x{} (full: {}x{})",
-            area.x(), area.y(), area.width(), area.height(), full_width, full_h
+            area.x(),
+            area.y(),
+            area.width(),
+            area.height(),
+            full_width,
+            full_h
         );
         (cropped, area.width(), area.height(), cfa_shifted)
     } else {
@@ -138,26 +159,28 @@ pub fn load(path: &Path) -> anyhow::Result<RawData> {
 
 /// 3×3 行列の逆行列（行列式が 0 に近い場合は None）
 fn mat3x3_inverse(m: &[[f32; 3]; 3]) -> Option<[[f32; 3]; 3]> {
-    let det = m[0][0] * (m[1][1]*m[2][2] - m[1][2]*m[2][1])
-            - m[0][1] * (m[1][0]*m[2][2] - m[1][2]*m[2][0])
-            + m[0][2] * (m[1][0]*m[2][1] - m[1][1]*m[2][0]);
-    if det.abs() < 1e-10 { return None; }
+    let det = m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
+        - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+        + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+    if det.abs() < 1e-10 {
+        return None;
+    }
     let inv_det = 1.0 / det;
     Some([
         [
-             (m[1][1]*m[2][2] - m[1][2]*m[2][1]) * inv_det,
-            -(m[0][1]*m[2][2] - m[0][2]*m[2][1]) * inv_det,
-             (m[0][1]*m[1][2] - m[0][2]*m[1][1]) * inv_det,
+            (m[1][1] * m[2][2] - m[1][2] * m[2][1]) * inv_det,
+            -(m[0][1] * m[2][2] - m[0][2] * m[2][1]) * inv_det,
+            (m[0][1] * m[1][2] - m[0][2] * m[1][1]) * inv_det,
         ],
         [
-            -(m[1][0]*m[2][2] - m[1][2]*m[2][0]) * inv_det,
-             (m[0][0]*m[2][2] - m[0][2]*m[2][0]) * inv_det,
-            -(m[0][0]*m[1][2] - m[0][2]*m[1][0]) * inv_det,
+            -(m[1][0] * m[2][2] - m[1][2] * m[2][0]) * inv_det,
+            (m[0][0] * m[2][2] - m[0][2] * m[2][0]) * inv_det,
+            -(m[0][0] * m[1][2] - m[0][2] * m[1][0]) * inv_det,
         ],
         [
-             (m[1][0]*m[2][1] - m[1][1]*m[2][0]) * inv_det,
-            -(m[0][0]*m[2][1] - m[0][1]*m[2][0]) * inv_det,
-             (m[0][0]*m[1][1] - m[0][1]*m[1][0]) * inv_det,
+            (m[1][0] * m[2][1] - m[1][1] * m[2][0]) * inv_det,
+            -(m[0][0] * m[2][1] - m[0][1] * m[2][0]) * inv_det,
+            (m[0][0] * m[1][1] - m[0][1] * m[1][0]) * inv_det,
         ],
     ])
 }
