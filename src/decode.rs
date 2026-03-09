@@ -72,16 +72,20 @@ pub fn load(path: &Path) -> anyhow::Result<RawData> {
             }
 
                 // 逆行列計算 → cam_to_xyz
-                let inv = mat3x3_inverse(&xyz2cam).unwrap_or_else(|| {
-                    eprintln!("Warning: matrix inversion failed, using identity");
-                    [[1.0,0.0,0.0],[0.0,1.0,0.0],[0.0,0.0,1.0]]
-                });
+                let (inv, final_illuminant) = match mat3x3_inverse(&xyz2cam) {
+                    Some(m) => (m, illuminant),
+                    None => {
+                        eprintln!("Warning: matrix inversion failed, using identity");
+                        ([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], None)
+                    }
+                };
+
                 let m = [
                     [inv[0][0], inv[0][1], inv[0][2], 0.0],
                     [inv[1][0], inv[1][1], inv[1][2], 0.0],
                     [inv[2][0], inv[2][1], inv[2][2], 0.0],
                 ];
-                (m, illuminant)
+                (m, final_illuminant)
             } else {
                 eprintln!("Warning: color_matrix length < 9 ({}), using identity", flat.len());
                 ([[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0]], None)
