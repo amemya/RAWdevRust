@@ -1,5 +1,4 @@
 use crate::decode::RawData;
-use super::linear_to_srgb;
 
 /// RCD (Ratio Corrected Demosaicing) デモザイク
 ///
@@ -9,8 +8,8 @@ use super::linear_to_srgb;
 ///   3. 比率マップを 3×3 平均フィルタで平滑化
 ///   4. 比率 × 補間済み緑 = R/B チャネルを復元
 ///
-/// output: Vec<u8> RGBRGB... (8bit sRGB ガンマ付き)
-pub fn run(raw: &RawData) -> Vec<u8> {
+/// output: Vec<f32> RGBRGB... linear Camera RGB（WB・ガンマなし）
+pub fn run(raw: &RawData) -> Vec<f32> {
     let w = raw.width;
     let h = raw.height;
 
@@ -30,19 +29,12 @@ pub fn run(raw: &RawData) -> Vec<u8> {
     // ─── Step 2 & 3: R/G・B/G 比率マップ生成 & 平滑化 ────────────
     let (ratio_r, ratio_b) = build_ratio_maps(&norm, &green, w, h, raw);
 
-    // ─── Step 4: R/B 復元 ─────────────────────────────────────────
-    // ホワイトバランス係数（G基準正規化）
-    let wb_r = raw.wb_coeffs[0] / raw.wb_coeffs[1];
-    let wb_b = raw.wb_coeffs[2] / raw.wb_coeffs[1];
-
+    // ─── Step 4: R/B 復元（WB・ガンマは color.rs で適用）─────────
     let mut out = Vec::with_capacity(w * h * 3);
     for i in 0..w * h {
-        let r = (ratio_r[i] * green[i] * wb_r).clamp(0.0, 1.0);
-        let g = green[i].clamp(0.0, 1.0);
-        let b = (ratio_b[i] * green[i] * wb_b).clamp(0.0, 1.0);
-        out.push(linear_to_srgb(r));
-        out.push(linear_to_srgb(g));
-        out.push(linear_to_srgb(b));
+        out.push((ratio_r[i] * green[i]).clamp(0.0, 1.0));
+        out.push(green[i].clamp(0.0, 1.0));
+        out.push((ratio_b[i] * green[i]).clamp(0.0, 1.0));
     }
     out
 }
