@@ -1,4 +1,5 @@
 use crate::decode::RawData;
+use super::linear_to_srgb;
 
 /// RCD (Ratio Corrected Demosaicing) デモザイク
 ///
@@ -77,19 +78,21 @@ fn interp_green(norm: &[f32], w: usize, h: usize, raw: &RawData) -> Vec<f32> {
                 let (r, c) = (row as i32, col as i32);
 
                 // 水平方向の差分・勾配
+                // G_h = (G[c-1]+G[c+1])/2 + (2*C[c]-C[c-2]-C[c+2])/4
                 let gh = 0.5 * (px(norm, w, h, r, c - 1) + px(norm, w, h, r, c + 1))
-                    + 0.25 * (px(norm, w, h, r, c    )
-                            - 0.5 * px(norm, w, h, r, c - 2)
-                            - 0.5 * px(norm, w, h, r, c + 2));
+                    + 0.25 * (2.0 * px(norm, w, h, r, c    )
+                            - px(norm, w, h, r, c - 2)
+                            - px(norm, w, h, r, c + 2));
                 let dh = (px(norm, w, h, r, c - 1) - px(norm, w, h, r, c + 1)).abs()
                     + (px(norm, w, h, r, c    ) - px(norm, w, h, r, c - 2)).abs()
                     + (px(norm, w, h, r, c    ) - px(norm, w, h, r, c + 2)).abs();
 
                 // 垂直方向の差分・勾配
+                // G_v = (G[r-1]+G[r+1])/2 + (2*C[r]-C[r-2]-C[r+2])/4
                 let gv = 0.5 * (px(norm, w, h, r - 1, c) + px(norm, w, h, r + 1, c))
-                    + 0.25 * (px(norm, w, h, r    , c)
-                            - 0.5 * px(norm, w, h, r - 2, c)
-                            - 0.5 * px(norm, w, h, r + 2, c));
+                    + 0.25 * (2.0 * px(norm, w, h, r    , c)
+                            - px(norm, w, h, r - 2, c)
+                            - px(norm, w, h, r + 2, c));
                 let dv = (px(norm, w, h, r - 1, c) - px(norm, w, h, r + 1, c)).abs()
                     + (px(norm, w, h, r    , c) - px(norm, w, h, r - 2, c)).abs()
                     + (px(norm, w, h, r    , c) - px(norm, w, h, r + 2, c)).abs();
@@ -165,12 +168,4 @@ fn smooth_ratio(ratio_raw: &[f32], w: usize, h: usize, raw: &RawData, channel: u
     out
 }
 
-#[inline]
-fn linear_to_srgb(v: f32) -> u8 {
-    let c = if v <= 0.0031308 {
-        12.92 * v
-    } else {
-        1.055 * v.powf(1.0 / 2.4) - 0.055
-    };
-    (c.clamp(0.0, 1.0) * 255.0 + 0.5) as u8
-}
+
