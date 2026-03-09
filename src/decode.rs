@@ -24,8 +24,8 @@ pub struct RawData {
     /// Camera RGB → XYZ 変換行列 [[f32;4];3]  (rows=XYZ, cols=CamRGB+pad)
     /// D65 ベースの行列を優先して格納
     pub cam_to_xyz: [[f32; 4]; 3],
-    /// cam_to_xyz が D65 ベースかどうか（D50の場合は呼び出し側でBradford適応が必要）
-    pub cam_to_xyz_is_d65: bool,
+    /// color_matrix を導出した時点でのテスト光源
+    pub cam_illuminant: Option<Illuminant>,
 }
 
 pub fn load(path: &Path) -> anyhow::Result<RawData> {
@@ -36,18 +36,18 @@ pub fn load(path: &Path) -> anyhow::Result<RawData> {
     let full_width = rawimage.width;
 
     // cam_to_xyz: rawimage.color_matrix（非 deprecated）から取得
-    let (cam_to_xyz, cam_to_xyz_is_d65) = {
+    let (cam_to_xyz, cam_illuminant) = {
         // D65 → D50 の順に優先
-        let (flat, is_d65) = if let Some(m) = rawimage.color_matrix.get(&Illuminant::D65) {
-            (Some(m.clone()), true)
+        let (flat, illuminant) = if let Some(m) = rawimage.color_matrix.get(&Illuminant::D65) {
+            (Some(m.clone()), Some(Illuminant::D65))
         } else if let Some(m) = rawimage.color_matrix.get(&Illuminant::D50) {
-            (Some(m.clone()), false)
-        } else if let Some(m) = rawimage.color_matrix.values().next() {
-            eprintln!("Warning: color_matrix illuminant unknown, using first available");
-            (Some(m.clone()), false)
+            (Some(m.clone()), Some(Illuminant::D50))
+        } else if let Some((&k, m)) = rawimage.color_matrix.iter().next() {
+            eprintln!("Warning: color_matrix illuminant is {:?} (not D50/D65)", k);
+            (Some(m.clone()), Some(k.clone()))
         } else {
             eprintln!("Warning: no color_matrix found, using identity");
-            (None, true)
+            (None, None)
         };
 
         if let Some(flat) = flat {
@@ -81,13 +81,13 @@ pub fn load(path: &Path) -> anyhow::Result<RawData> {
                     [inv[1][0], inv[1][1], inv[1][2], 0.0],
                     [inv[2][0], inv[2][1], inv[2][2], 0.0],
                 ];
-                (m, is_d65)
+                (m, illuminant)
             } else {
                 eprintln!("Warning: color_matrix length < 9 ({}), using identity", flat.len());
-                ([[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0]], true)
+                ([[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0]], None)
             }
         } else {
-            ([[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0]], true)
+            ([[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0]], None)
         }
     };
 
@@ -128,7 +128,7 @@ pub fn load(path: &Path) -> anyhow::Result<RawData> {
         white_level,
         wb_coeffs,
         cam_to_xyz,
-        cam_to_xyz_is_d65,
+        cam_illuminant,
     })
 }
 

@@ -36,7 +36,7 @@ fn main() {
 
     // カラーパイプライン (in-place処理により中間Vecアロケーションを削減)
     color::apply_wb(&mut linear, &raw.wb_coeffs);
-    color::apply_color_matrix(&mut linear, &raw.cam_to_xyz, raw.cam_to_xyz_is_d65);
+    color::apply_color_matrix(&mut linear, &raw.cam_to_xyz, raw.cam_illuminant);
     let rgb = color::apply_gamma(&linear);
 
     // 出力
