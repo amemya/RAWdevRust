@@ -18,7 +18,8 @@ rawdev input.cr2 -o output.tiff --profile camera.dcp
 
 ## 開発状況
 
-現在Phase 1
+Phase 1 [完了]  
+現在Phase 2  
 詳細は [SPEC.md](./SPEC.md) を参照。
 
 ## ライセンス
