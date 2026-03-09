@@ -9,11 +9,11 @@
 - [x] **Fix: Optical Black 除去**（`active_area` クロップ実装）
 
 ## Phase 2: RCDデモザイク実装
-- [ ] Hamilton-Adams EdgeDirected 補間（緑チャネル）
-- [ ] R/G・B/G 比率マップ生成
-- [ ] 比率マップの平滑化
-- [ ] 赤・青チャネル復元
-- [ ] リファレンスPNGと比較・検証
+- [x] Hamilton-Adams EdgeDirected 補間（緑チャネル）
+- [x] R/G・B/G 比率マップ生成
+- [x] 比率マップの平滑化
+- [x] 赤・青チャネル復元
+- [x] リファレンスPNGと比較・検証（Bilinear比でエッジ偽色の低減を確認）
 
 ## Phase 3: ホワイトバランス・カラーマトリクス適用
 - [ ] カメラホワイトバランス係数の適用

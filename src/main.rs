@@ -30,8 +30,8 @@ fn main() {
         raw.width, raw.height, raw.cfa
     );
 
-    // デモザイク（Bilinear）
-    let rgb = demosaic::bilinear::run(&raw);
+    // デモザイク（RCD）
+    let rgb = demosaic::rcd::run(&raw);
 
     // 出力
     output::save_ppm(&rgb, raw.width, raw.height, &cli.output)
