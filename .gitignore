@@ -7,13 +7,15 @@
 .DS_Store
 
 ## test raw
-reference/
+reference/*
+!reference/.gitkeep
 
 ## rust
 target/
 
 ## debug output
 *.ppm
+*.png
 output/*
 !output/.gitkeep
 
