@@ -118,7 +118,7 @@ pub fn load(path: &Path) -> anyhow::Result<RawData> {
     let black_level = rawimage.blacklevel.as_bayer_array();
     let white_level = rawimage.whitelevel.as_bayer_array();
     let wb_coeffs = rawimage.wb_coeffs.map(|v| if v.is_nan() { 1.0 } else { v });
-    let active_area = rawimage.active_area;
+    let active_area = rawimage.crop_area.or(rawimage.active_area);
 
     let pixels_full: Vec<u16> = match rawimage.data {
         RawImageData::Integer(data) => data,
