@@ -32,9 +32,11 @@ pub fn run(raw: &RawData) -> Vec<f32> {
     // ─── Step 4: R/B 復元（WB・ガンマは color.rs で適用）─────────
     let mut out = Vec::with_capacity(w * h * 3);
     for i in 0..w * h {
-        out.push((ratio_r[i] * green[i]).clamp(0.0, 1.0));
-        out.push(green[i].clamp(0.0, 1.0));
-        out.push((ratio_b[i] * green[i]).clamp(0.0, 1.0));
+        // [0,1] でクランプすると、1.0 を超えたデータを失いハイライトで色がおかしくなる（早期クリップ）
+        // そのため、ここではクランプせずに linear 値のまま保持し、カラーマトリクス適用後にクランプする
+        out.push(ratio_r[i] * green[i]);
+        out.push(green[i]);
+        out.push(ratio_b[i] * green[i]);
     }
     out
 }

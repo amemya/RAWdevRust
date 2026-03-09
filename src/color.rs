@@ -14,9 +14,11 @@ pub fn apply_wb(pixels: &mut [f32], wb_coeffs: &[f32; 4]) {
     let wb = wb_coeffs[2] / wb_coeffs[1];
 
     for p in pixels.chunks_exact_mut(3) {
-        p[0] = (p[0] * wr).clamp(0.0, 1.0);
-        p[1] = (p[1] * wg).clamp(0.0, 1.0);
-        p[2] = (p[2] * wb).clamp(0.0, 1.0);
+        // ハイライトの早期クリップを防ぐため、ここではクランプしない。
+        // マトリクス適用後にクランプする
+        p[0] = p[0] * wr;
+        p[1] = p[1] * wg;
+        p[2] = p[2] * wb;
     }
 }
 
