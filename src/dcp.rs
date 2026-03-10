@@ -78,14 +78,16 @@ pub fn load_dcp(path: &Path) -> Result<DcpProfile> {
         _ => anyhow::bail!("Invalid TIFF endianness marker"),
     };
 
-    // magic number check (allow IIRC or 0x2A)
+    // magic number check (allow IIRC or 0x2A for standard TIFF)
     let magic = read_u16_le(&buffer, 2);
-    if magic != 42 && magic != 0x4352 /* IIRC */ {
+    if magic == 43 {
+        anyhow::bail!("BigTIFF (magic 43) is not supported");
+    } else if magic != 42 && magic != 0x4352 /* IIRC */ {
         anyhow::bail!("Invalid TIFF magic number: {}", magic);
     }
 
     let ifd_offset = read_u32_le(&buffer, 4) as usize;
-    if ifd_offset >= buffer.len() {
+    if ifd_offset + 2 > buffer.len() {
         anyhow::bail!("IFD offset out of bounds");
     }
 

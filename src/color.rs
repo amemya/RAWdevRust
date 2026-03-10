@@ -119,10 +119,7 @@ fn mat3x3_mul(a: &[[f32; 3]; 3], b: &[[f32; 3]; 3]) -> [[f32; 3]; 3] {
 /// DCP の ForwardMatrix を用いて XYZ(D50) に変換し、
 /// さらに sRGB (linear) へ変換。その後 ToneCurve を適用します。
 pub fn apply_dcp(pixels: &mut [f32], dcp: &crate::dcp::DcpProfile, wb_coeffs: &[f32; 4]) -> anyhow::Result<()> {
-    // 1. WB適用
-    apply_wb(pixels, wb_coeffs);
-
-    // 2. ForwardMatrixの選択 (とりあえず D65 優先)
+    // Validate ForwardMatrix before mutating any pixels
     let forward = dcp.forward_matrix2.as_ref()
         .or(dcp.forward_matrix1.as_ref());
     
@@ -136,6 +133,9 @@ pub fn apply_dcp(pixels: &mut [f32], dcp: &crate::dcp::DcpProfile, wb_coeffs: &[
         [fm_data[3], fm_data[4], fm_data[5]],
         [fm_data[6], fm_data[7], fm_data[8]],
     ];
+
+    // 1. WB適用 (Safe to mutate now)
+    apply_wb(pixels, wb_coeffs);
 
     // XYZ(D65) -> sRGB
     let xyz_d65_to_srgb: [[f32; 3]; 3] = [
@@ -312,12 +312,13 @@ fn apply_3d_lut_hsv(pixels: &mut [f32], dims: [u32; 3], data: &[f32], is_look_ta
         // s: 0..1  -> s_idx: 0..(ds-1)
         // v: 0..1  -> v_idx: 0..(dv-1)
 
-        let h_norm = h / 360.0;
-        let s_norm = s;
+        let h_norm = (h / 360.0).clamp(0.0, 1.0);
+        let s_norm = s.clamp(0.0, 1.0);
         // The DNG specification says ProfileLookTable is indexed by HSV values that
         // correspond to a generic base curve applied to linear ProPhoto RGB.
         // We'll use a simple gamma 1/1.8 approximation just for indexing.
-        let v_norm = if is_look_table { v.powf(1.0 / 1.8) } else { v };
+        let v_gamma = if is_look_table { v.powf(1.0 / 1.8) } else { v };
+        let v_norm = v_gamma.clamp(0.0, 1.0);
 
         // Trilinear Interpolation
         let hf = h_norm * dh as f32;
@@ -391,10 +392,9 @@ fn apply_3d_lut_hsv(pixels: &mut [f32], dims: [u32; 3], data: &[f32], is_look_ta
             out_v *= v_scale;
         }
 
-            // HSV -> RGB (reconstructed)
-            if out_h >= 360.0 { out_h -= 360.0; }
-            if out_h < 0.0 { out_h += 360.0; }
-            out_s = out_s.clamp(0.0, 1.0);
+        // HSV -> RGB (reconstructed)
+        out_h = out_h.rem_euclid(360.0);
+        out_s = out_s.clamp(0.0, 1.0);
             
             let c = out_v * out_s;
             let x = c * (1.0 - ((out_h / 60.0) % 2.0 - 1.0).abs());
