@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use clap::Parser;
 
 mod color;
+mod dcp;
 mod decode;
 mod demosaic;
 mod output;

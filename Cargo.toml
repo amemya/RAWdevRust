@@ -12,3 +12,4 @@ rawler = "0.7.2"
 image = "0.25"
 clap = { version = "4", features = ["derive"] }
 anyhow = "1.0.102"
+tiff = "0.9"
