@@ -41,7 +41,11 @@ fn main() {
         println!("Loading DCP profile: {:?}", dcp_path);
         match dcp::load_dcp(dcp_path) {
             Ok(profile) => {
-                color::apply_dcp(&mut linear, &profile, &raw.wb_coeffs);
+                if let Err(e) = color::apply_dcp(&mut linear, &profile, &raw.wb_coeffs) {
+                    eprintln!("Failed to apply DCP: {}. Falling back to default.", e);
+                    color::apply_wb(&mut linear, &raw.wb_coeffs);
+                    color::apply_color_matrix(&mut linear, &raw.cam_to_xyz, raw.cam_illuminant);
+                }
             }
             Err(e) => {
                 eprintln!("Failed to load DCP: {}. Falling back to default.", e);

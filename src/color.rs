@@ -118,19 +118,23 @@ fn mat3x3_mul(a: &[[f32; 3]; 3], b: &[[f32; 3]; 3]) -> [[f32; 3]; 3] {
 /// wb_coeffs を乗算して White Balanced Camera RGB とし、
 /// DCP の ForwardMatrix を用いて XYZ(D50) に変換し、
 /// さらに sRGB (linear) へ変換。その後 ToneCurve を適用します。
-pub fn apply_dcp(pixels: &mut [f32], dcp: &crate::dcp::DcpProfile, wb_coeffs: &[f32; 4]) {
+pub fn apply_dcp(pixels: &mut [f32], dcp: &crate::dcp::DcpProfile, wb_coeffs: &[f32; 4]) -> anyhow::Result<()> {
     // 1. WB適用
     apply_wb(pixels, wb_coeffs);
 
     // 2. ForwardMatrixの選択 (とりあえず D65 優先)
     let forward = dcp.forward_matrix2.as_ref()
-        .or(dcp.forward_matrix1.as_ref())
-        .expect("DCP has no ForwardMatrix");
+        .or(dcp.forward_matrix1.as_ref());
+    
+    let fm_data = forward.ok_or_else(|| anyhow::anyhow!("DCP has no ForwardMatrix"))?;
+    if fm_data.len() < 9 {
+        anyhow::bail!("DCP ForwardMatrix has less than 9 elements");
+    }
 
     let fm = [
-        [forward[0], forward[1], forward[2]],
-        [forward[3], forward[4], forward[5]],
-        [forward[6], forward[7], forward[8]],
+        [fm_data[0], fm_data[1], fm_data[2]],
+        [fm_data[3], fm_data[4], fm_data[5]],
+        [fm_data[6], fm_data[7], fm_data[8]],
     ];
 
     // XYZ(D65) -> sRGB
@@ -182,6 +186,8 @@ pub fn apply_dcp(pixels: &mut [f32], dcp: &crate::dcp::DcpProfile, wb_coeffs: &[
     for p in pixels.iter_mut() {
         *p = p.clamp(0.0, 1.0);
     }
+
+    Ok(())
 }
 
 pub const DEFAULT_BASE_CURVE: &[f32] = &[
@@ -211,7 +217,7 @@ pub const DEFAULT_BASE_CURVE: &[f32] = &[
     0.929661, 0.999145, 0.952775, 0.999426, 0.976221, 0.999711, 1.000000, 1.000000, 
 ];
 
-/// Tone Curve (x, y 配列) を線形補間で適用
+/// Tone Curve (x, y 配列) を1D LUTを用いて高速に補間適用
 fn apply_tone_curve(pixels: &mut [f32], curve: &[f32]) {
     // curveは [x0, y0, x1, y1, ...]
     let num_points = curve.len() / 2;
@@ -219,31 +225,42 @@ fn apply_tone_curve(pixels: &mut [f32], curve: &[f32]) {
         return;
     }
 
-    for p in pixels.iter_mut() {
-        let x = *p;
-        // x が小さすぎる場合、大きすぎる場合
+    // 1D LUT (4096 sample points) for O(1) per-pixel lookup instead of nested loops
+    const LUT_SIZE: usize = 4096;
+    let mut lut = [0.0; LUT_SIZE];
+    
+    for i in 0..LUT_SIZE {
+        let x = i as f32 / (LUT_SIZE - 1) as f32;
+        
+        let mut y = curve[(num_points - 1) * 2 + 1];
         if x <= curve[0] {
-            *p = curve[1];
-            continue;
-        }
-        if x >= curve[(num_points - 1) * 2] {
-            *p = curve[(num_points - 1) * 2 + 1];
-            continue;
-        }
+            y = curve[1];
+        } else {
+            for j in 0..num_points - 1 {
+                let x0 = curve[j * 2];
+                let y0 = curve[j * 2 + 1];
+                let x1 = curve[(j + 1) * 2];
+                let y1 = curve[(j + 1) * 2 + 1];
 
-        // 探索
-        for i in 0..num_points - 1 {
-            let x0 = curve[i * 2];
-            let y0 = curve[i * 2 + 1];
-            let x1 = curve[(i + 1) * 2];
-            let y1 = curve[(i + 1) * 2 + 1];
-
-            if x >= x0 && x <= x1 {
-                let t = (x - x0) / (x1 - x0);
-                *p = y0 + t * (y1 - y0);
-                break;
+                if x >= x0 && x <= x1 {
+                    let d = x1 - x0;
+                    if d > 1e-6 {
+                        let t = (x - x0) / d;
+                        y = y0 + t * (y1 - y0);
+                    } else {
+                        y = y0;
+                    }
+                    break;
+                }
             }
         }
+        lut[i] = y;
+    }
+
+    for p in pixels.iter_mut() {
+        let x = p.clamp(0.0, 1.0);
+        let idx = (x * (LUT_SIZE - 1) as f32).round() as usize;
+        *p = lut[idx];
     }
 }
 
@@ -256,6 +273,10 @@ fn apply_3d_lut_hsv(pixels: &mut [f32], dims: [u32; 3], data: &[f32], is_look_ta
     let dh = dims[0] as usize; // Hue divisions
     let ds = dims[1] as usize; // Saturation divisions
     let dv = dims[2] as usize; // Value divisions
+
+    if dh < 1 || ds < 2 || dv < 2 {
+        return; // Avoid underflow and division by zero
+    }
     
     // elements per LUT entry: 3 (H shift, S scale, V scale) for HueSatMap
     // LookTable has 3 elements too.
@@ -396,6 +417,5 @@ fn apply_3d_lut_hsv(pixels: &mut [f32], dims: [u32; 3], data: &[f32], is_look_ta
             p[0] = r_ + m;
             p[1] = g_ + m;
             p[2] = b_ + m;
-        // } ← Removed this extra brace which was causing the issue
     }
 }
