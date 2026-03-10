@@ -6,9 +6,9 @@
 ## macOS
 .DS_Store
 
-## test raw
-reference/*
-!reference/.gitkeep
+## reference files
+assets/reference/*
+!assets/reference/.gitkeep
 
 ## rust
 target/
@@ -19,3 +19,6 @@ target/
 output/*
 !output/.gitkeep
 
+## DCP profiles
+assets/profiles/*
+!assets/profiles/.gitkeep

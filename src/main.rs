@@ -17,6 +17,10 @@ struct Cli {
     /// Output file
     #[arg(short, long)]
     output: PathBuf,
+
+    /// DCP Profile (Optional)
+    #[arg(long)]
+    dcp: Option<PathBuf>,
 }
 
 fn main() {
@@ -33,8 +37,23 @@ fn main() {
     let mut linear = demosaic::rcd::run(&raw);
 
     // カラーパイプライン (in-place処理により中間Vecアロケーションを削減)
-    color::apply_wb(&mut linear, &raw.wb_coeffs);
-    color::apply_color_matrix(&mut linear, &raw.cam_to_xyz, raw.cam_illuminant);
+    if let Some(dcp_path) = &cli.dcp {
+        println!("Loading DCP profile: {:?}", dcp_path);
+        match dcp::load_dcp(dcp_path) {
+            Ok(profile) => {
+                color::apply_dcp(&mut linear, &profile, &raw.wb_coeffs);
+            }
+            Err(e) => {
+                eprintln!("Failed to load DCP: {}. Falling back to default.", e);
+                color::apply_wb(&mut linear, &raw.wb_coeffs);
+                color::apply_color_matrix(&mut linear, &raw.cam_to_xyz, raw.cam_illuminant);
+            }
+        }
+    } else {
+        color::apply_wb(&mut linear, &raw.wb_coeffs);
+        color::apply_color_matrix(&mut linear, &raw.cam_to_xyz, raw.cam_illuminant);
+    }
+
     let rgb = color::apply_gamma(&linear);
 
     // 出力
