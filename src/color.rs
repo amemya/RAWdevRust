@@ -171,7 +171,7 @@ pub fn apply_dcp(pixels: &mut [f32], dcp: &crate::dcp::DcpProfile, wb_coeffs: &[
             apply_3d_lut_hsv(pixels, dims, data, true);
         }
     } else if let Some(dims) = dcp.map_dims {
-        if let Some(ref data) = dcp.hsl_map1 {
+        if let Some(ref data) = dcp.hsl_map1.as_ref().or(dcp.hsl_map2.as_ref()) {
             apply_3d_lut_hsv(pixels, dims, data, false);
         }
     }
@@ -278,6 +278,19 @@ fn apply_3d_lut_hsv(pixels: &mut [f32], dims: [u32; 3], data: &[f32], is_look_ta
         return; // Avoid underflow and division by zero
     }
     
+    // Validate LUT dimensions against data length using checked arithmetic.
+    // If the LUT is inconsistent or would overflow, skip applying it.
+    let lut_valid = dh
+        .checked_mul(ds)
+        .and_then(|x| x.checked_mul(dv))
+        .and_then(|x| x.checked_mul(3))
+        .map(|total| total <= data.len())
+        .unwrap_or(false);
+
+    if !lut_valid {
+        return;
+    }
+    
     // elements per LUT entry: 3 (H shift, S scale, V scale) for HueSatMap
     // LookTable has 3 elements too.
     for p in pixels.chunks_exact_mut(3) {
@@ -341,9 +354,20 @@ fn apply_3d_lut_hsv(pixels: &mut [f32], dims: [u32; 3], data: &[f32], is_look_ta
 
         // Helper to fetch (h_shift, s_scale, v_scale) at grid point
         let fetch = |hv: usize, sv: usize, vv: usize| -> (f32, f32, f32) {
-            let idx = (vv * ds * dh + sv * dh + hv) * 3;
-            if idx + 2 < data.len() {
-                (data[idx], data[idx + 1], data[idx + 2])
+            // Compute index with checked arithmetic to avoid overflow.
+            let idx_opt = vv
+                .checked_mul(ds)
+                .and_then(|x| x.checked_mul(dh))
+                .and_then(|x| x.checked_add(sv.saturating_mul(dh)))
+                .and_then(|x| x.checked_add(hv))
+                .and_then(|x| x.checked_mul(3));
+
+            if let Some(idx) = idx_opt {
+                if idx + 2 < data.len() {
+                    (data[idx], data[idx + 1], data[idx + 2])
+                } else {
+                    (0.0, 1.0, 1.0)
+                }
             } else {
                 (0.0, 1.0, 1.0)
             }
