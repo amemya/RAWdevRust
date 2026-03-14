@@ -1,6 +1,21 @@
 use crate::demosaic::linear_to_srgb;
 use rawler::imgop::xyz::Illuminant;
 
+// 標準の色空間変換マトリクス群
+#[rustfmt::skip]
+pub const XYZ_TO_SRGB: [[f32; 3]; 3] = [
+    [ 3.2404542, -1.5371385, -0.4985314],
+    [-0.9692660,  1.8760108,  0.0415560],
+    [ 0.0556434, -0.2040259,  1.0572252],
+];
+
+#[rustfmt::skip]
+pub const BRADFORD_D50_TO_D65: [[f32; 3]; 3] = [
+    [ 0.9555766, -0.0230393,  0.0631636],
+    [-0.0282895,  1.0099416,  0.0210077],
+    [ 0.0122982, -0.0204830,  1.3299098],
+];
+
 /// カラーパイプライン
 ///
 /// 入力: linear Camera RGB (Vec<f32>, RGBRGB...)
@@ -44,12 +59,7 @@ pub fn apply_color_matrix(
     );
 
     // XYZ(D65) → linear sRGB 行列（IEC 61966-2-1）
-    #[rustfmt::skip]
-    let xyz_to_srgb: [[f32; 3]; 3] = [
-        [ 3.2404542, -1.5371385, -0.4985314],
-        [-0.9692660,  1.8760108,  0.0415560],
-        [ 0.0556434, -0.2040259,  1.0572252],
-    ];
+    let xyz_to_srgb = XYZ_TO_SRGB;
 
     // cam_to_xyz の 3×3 部分を抽出
     let c2x = [
@@ -59,12 +69,7 @@ pub fn apply_color_matrix(
     ];
 
     // D50 ベースの場合は Bradford クロマティック適応 D50→D65 を追加
-    #[rustfmt::skip]
-    let bradford_d50_to_d65: [[f32; 3]; 3] = [
-        [ 0.9555766, -0.0230393,  0.0631636],
-        [-0.0282895,  1.0099416,  0.0210077],
-        [ 0.0122982, -0.0204830,  1.3299098],
-    ];
+    let bradford_d50_to_d65 = BRADFORD_D50_TO_D65;
 
     // 合成行列: sRGB = (xyz_to_srgb) · [Bradford?] · cam_to_xyz · cam_rgb
     let full: [[f32; 3]; 3] = match cam_illuminant {
@@ -120,8 +125,9 @@ fn mat3x3_mul(a: &[[f32; 3]; 3], b: &[[f32; 3]; 3]) -> [[f32; 3]; 3] {
 /// さらに sRGB (linear) へ変換。その後 ToneCurve を適用します。
 pub fn apply_dcp(pixels: &mut [f32], dcp: &crate::dcp::DcpProfile, wb_coeffs: &[f32; 4]) -> anyhow::Result<()> {
     // Validate ForwardMatrix before mutating any pixels
-    let forward = dcp.forward_matrix2.as_ref()
-        .or(dcp.forward_matrix1.as_ref());
+    // Prefer ForwardMatrix1 by default; fall back to ForwardMatrix2 if needed.
+    let forward = dcp.forward_matrix1.as_ref()
+        .or(dcp.forward_matrix2.as_ref());
     
     let fm_data = forward.ok_or_else(|| anyhow::anyhow!("DCP has no ForwardMatrix"))?;
     if fm_data.len() < 9 {
@@ -138,18 +144,10 @@ pub fn apply_dcp(pixels: &mut [f32], dcp: &crate::dcp::DcpProfile, wb_coeffs: &[
     apply_wb(pixels, wb_coeffs);
 
     // XYZ(D65) -> sRGB
-    let xyz_d65_to_srgb: [[f32; 3]; 3] = [
-        [ 3.2404542, -1.5371385, -0.4985314],
-        [-0.9692660,  1.8760108,  0.0415560],
-        [ 0.0556434, -0.2040259,  1.0572252],
-    ];
+    let xyz_d65_to_srgb = XYZ_TO_SRGB;
 
     // Bradford D50 -> D65
-    let d50_to_d65: [[f32; 3]; 3] = [
-        [ 0.9555766, -0.0230393,  0.0631636],
-        [-0.0282895,  1.0099416,  0.0210077],
-        [ 0.0122982, -0.0204830,  1.3299098],
-    ];
+    let d50_to_d65 = BRADFORD_D50_TO_D65;
 
     // ForwardMatrix -> XYZ(D50) -> XYZ(D65) -> sRGB
     let d50_srgb = mat3x3_mul(&xyz_d65_to_srgb, &d50_to_d65);
@@ -338,7 +336,7 @@ fn apply_3d_lut_hsv(pixels: &mut [f32], dims: [u32; 3], data: &[f32], is_look_ta
         let sf = s_norm * (ds - 1) as f32;
         let vf = v_norm * (dv - 1) as f32;
 
-        let h0 = hf.floor() as usize;
+        let h0 = (hf.floor() as usize) % dh;
         let s0 = sf.floor() as usize;
         let v0 = vf.floor() as usize;
 
