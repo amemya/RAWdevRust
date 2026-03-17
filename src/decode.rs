@@ -163,8 +163,8 @@ pub fn load(path: &Path) -> anyhow::Result<RawData> {
         wb_coeffs,
         cam_to_xyz,
         cam_illuminant,
-        make: rawimage.make.clone(),
-        model: rawimage.model.clone(),
+        make: rawimage.make,
+        model: rawimage.model,
     })
 }
 
