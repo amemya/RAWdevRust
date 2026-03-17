@@ -289,6 +289,39 @@ fn apply_3d_lut_hsv(pixels: &mut [f32], dims: [u32; 3], data: &[f32], is_look_ta
         return;
     }
     
+    // Helper to fetch (h_shift, s_scale, v_scale) at grid point (hoisted out of pixel loop)
+    let fetch = |hv: usize, sv: usize, vv: usize| -> (f32, f32, f32) {
+        let idx_opt = vv
+            .checked_mul(ds)
+            .and_then(|x| x.checked_mul(dh))
+            .and_then(|x| x.checked_add(sv.saturating_mul(dh)))
+            .and_then(|x| x.checked_add(hv))
+            .and_then(|x| x.checked_mul(3));
+
+        if let Some(idx) = idx_opt {
+            if idx + 2 < data.len() {
+                (data[idx], data[idx + 1], data[idx + 2])
+            } else {
+                (0.0, 1.0, 1.0)
+            }
+        } else {
+            (0.0, 1.0, 1.0)
+        }
+    };
+
+    let lerp = |a: f32, b: f32, f: f32| a + f * (b - a);
+    let interp = |v000: f32, v100: f32, v010: f32, v110: f32,
+                  v001: f32, v101: f32, v011: f32, v111: f32,
+                  df: f32, dsf: f32, dvf: f32| -> f32 {
+        let i00 = lerp(v000, v100, df);
+        let i10 = lerp(v010, v110, df);
+        let i01 = lerp(v001, v101, df);
+        let i11 = lerp(v011, v111, df);
+        let i0 = lerp(i00, i10, dsf);
+        let i1 = lerp(i01, i11, dsf);
+        lerp(i0, i1, dvf)
+    };
+
     // elements per LUT entry: 3 (H shift, S scale, V scale) for HueSatMap
     // LookTable has 3 elements too.
     for p in pixels.chunks_exact_mut(3) {
@@ -350,27 +383,6 @@ fn apply_3d_lut_hsv(pixels: &mut [f32], dims: [u32; 3], data: &[f32], is_look_ta
         let ds_frac = sf - sf.floor();
         let dv_frac = vf - vf.floor();
 
-        // Helper to fetch (h_shift, s_scale, v_scale) at grid point
-        let fetch = |hv: usize, sv: usize, vv: usize| -> (f32, f32, f32) {
-            // Compute index with checked arithmetic to avoid overflow.
-            let idx_opt = vv
-                .checked_mul(ds)
-                .and_then(|x| x.checked_mul(dh))
-                .and_then(|x| x.checked_add(sv.saturating_mul(dh)))
-                .and_then(|x| x.checked_add(hv))
-                .and_then(|x| x.checked_mul(3));
-
-            if let Some(idx) = idx_opt {
-                if idx + 2 < data.len() {
-                    (data[idx], data[idx + 1], data[idx + 2])
-                } else {
-                    (0.0, 1.0, 1.0)
-                }
-            } else {
-                (0.0, 1.0, 1.0)
-            }
-        };
-
         // 8 corners
         let c000 = fetch(h0, s0, v0);
         let c100 = fetch(h1, s0, v0);
@@ -381,22 +393,9 @@ fn apply_3d_lut_hsv(pixels: &mut [f32], dims: [u32; 3], data: &[f32], is_look_ta
         let c011 = fetch(h0, s1, v1);
         let c111 = fetch(h1, s1, v1);
 
-        // Interpolate H shift
-        let lerp = |a: f32, b: f32, f: f32| a + f * (b - a);
-        let interp = |v000: f32, v100: f32, v010: f32, v110: f32,
-                      v001: f32, v101: f32, v011: f32, v111: f32| -> f32 {
-            let i00 = lerp(v000, v100, dh_frac);
-            let i10 = lerp(v010, v110, dh_frac);
-            let i01 = lerp(v001, v101, dh_frac);
-            let i11 = lerp(v011, v111, dh_frac);
-            let i0 = lerp(i00, i10, ds_frac);
-            let i1 = lerp(i01, i11, ds_frac);
-            lerp(i0, i1, dv_frac)
-        };
-
-        let h_shift = interp(c000.0, c100.0, c010.0, c110.0, c001.0, c101.0, c011.0, c111.0);
-        let s_scale = interp(c000.1, c100.1, c010.1, c110.1, c001.1, c101.1, c011.1, c111.1);
-        let v_scale = interp(c000.2, c100.2, c010.2, c110.2, c001.2, c101.2, c011.2, c111.2);
+        let h_shift = interp(c000.0, c100.0, c010.0, c110.0, c001.0, c101.0, c011.0, c111.0, dh_frac, ds_frac, dv_frac);
+        let s_scale = interp(c000.1, c100.1, c010.1, c110.1, c001.1, c101.1, c011.1, c111.1, dh_frac, ds_frac, dv_frac);
+        let v_scale = interp(c000.2, c100.2, c010.2, c110.2, c001.2, c101.2, c011.2, c111.2, dh_frac, ds_frac, dv_frac);
 
         let mut out_h = h;
         let mut out_s = s;

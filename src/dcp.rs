@@ -115,7 +115,9 @@ pub fn load_dcp(path: &Path) -> Result<DcpProfile> {
             _ => 0,
         };
 
-        let total_size = count * data_size;
+        let Some(total_size) = count.checked_mul(data_size) else {
+            anyhow::bail!("IFD entry data size overflowed");
+        };
         
         let data_slice = if total_size <= 4 {
             // Data is inline
@@ -123,7 +125,7 @@ pub fn load_dcp(path: &Path) -> Result<DcpProfile> {
         } else {
             // Data is at offset
             let offset = value_offset_or_data as usize;
-            if offset + total_size > buffer.len() {
+            if offset.checked_add(total_size).map_or(true, |end| end > buffer.len()) {
                 continue; // Skip out of bounds
             }
             &buffer[offset .. offset + total_size]
