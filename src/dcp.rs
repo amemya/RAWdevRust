@@ -220,8 +220,8 @@ pub fn load_dcp(path: &Path) -> Result<DcpProfile> {
 /// 指定されたカメラの "Adobe Standard" プロファイルを探索して返します。
 pub fn find_default_dcp(make: &str, model: &str) -> Option<std::path::PathBuf> {
     // パストラバーサルを防ぐため、パス区切り文字等を無害化する
-    let clean_make = make.trim().replace(['/', '\\'], "_");
-    let clean_model = model.trim().replace(['/', '\\'], "_");
+    let clean_make = make.trim().replace(|c| c == '/' || c == '\\', "_");
+    let clean_model = model.trim().replace(|c| c == '/' || c == '\\', "_");
 
     // 探索するルートディレクトリ (macOS と Windows)
     let mut search_paths = Vec::new();
