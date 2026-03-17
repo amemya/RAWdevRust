@@ -219,8 +219,9 @@ pub fn load_dcp(path: &Path) -> Result<DcpProfile> {
 /// 自動検出：Mac/Windows の標準的な Adobe Camera Raw プロファイルパスから、
 /// 指定されたカメラの "Adobe Standard" プロファイルを探索して返します。
 pub fn find_default_dcp(make: &str, model: &str) -> Option<std::path::PathBuf> {
-    let clean_make = make.trim();
-    let clean_model = model.trim();
+    // パストラバーサルを防ぐため、パス区切り文字等を無害化する
+    let clean_make = make.trim().replace(['/', '\\'], "_");
+    let clean_model = model.trim().replace(['/', '\\'], "_");
 
     // 探索するルートディレクトリ (macOS と Windows)
     let mut search_paths = Vec::new();
@@ -280,13 +281,21 @@ pub fn find_default_dcp(make: &str, model: &str) -> Option<std::path::PathBuf> {
         // (最大3階層までに制限して起動時のI/O遅延を防ぐ)
         let walk_dir = walkdir::WalkDir::new(&base_dir)
             .max_depth(3)
-            .into_iter()
-            .filter_map(|e| e.ok());
+            .into_iter();
 
         let mut best_match = None;
         let mut best_index = usize::MAX;
 
-        for entry in walk_dir {
+        for entry_res in walk_dir {
+            let entry = match entry_res {
+                Ok(e) => e,
+                Err(err) => {
+                    // アクセス権限等によるエラーを警告として出力しつつ探索を継続する
+                    eprintln!("Warning: Failed to access directory during DCP search: {}", err);
+                    continue;
+                }
+            };
+            
             let path = entry.path();
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             if path.is_file() && ext.eq_ignore_ascii_case("dcp") {
