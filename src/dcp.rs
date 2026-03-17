@@ -252,21 +252,27 @@ pub fn find_default_dcp(make: &str, model: &str) -> Option<std::path::PathBuf> {
             continue;
         }
 
-        let target_filename = format!("{} {} Adobe Standard.dcp", clean_make, clean_model);
-        let target_filename_fallback = format!("{} Adobe Standard.dcp", clean_model); // Makeが省略されるパターン
-
-        // 高速化のためのダイレクトルックアップ:
-        // Adobe Standardプロファイルは通常 "Adobe Standard" サブディレクトリ直下にある
-        let direct_paths = [
-            base_dir.join("Adobe Standard").join(&target_filename),
-            base_dir.join("Adobe Standard").join(&target_filename_fallback),
-            base_dir.join(&target_filename),
-            base_dir.join(&target_filename_fallback),
+        // 優先度順のターゲットファイル名リスト
+        // Adobe Standard を最優先し、存在しなければ Camera Standard へフォールバックする
+        let candidates = [
+            format!("{} {} Adobe Standard.dcp", clean_make, clean_model),
+            format!("{} Adobe Standard.dcp", clean_model),
+            format!("{} {} Camera Standard.dcp", clean_make, clean_model),
+            format!("{} Camera Standard.dcp", clean_model),
         ];
 
-        for direct_path in direct_paths {
-            if direct_path.is_file() {
-                return Some(direct_path);
+        // 高速化のためのダイレクトルックアップ:
+        for candidate in &candidates {
+            let direct_paths = [
+                base_dir.join("Adobe Standard").join(candidate),
+                base_dir.join(candidate),
+                // Camera Standard 系はプロファイル名フォルダ配下にあることが多いが、
+                // それは後続の WalkDir で拾うためここではルート直下のみをチェック
+            ];
+            for direct_path in &direct_paths {
+                if direct_path.is_file() {
+                    return Some(direct_path.clone());
+                }
             }
         }
 
@@ -277,17 +283,32 @@ pub fn find_default_dcp(make: &str, model: &str) -> Option<std::path::PathBuf> {
             .into_iter()
             .filter_map(|e| e.ok());
 
+        let mut best_match = None;
+        let mut best_index = usize::MAX;
+
         for entry in walk_dir {
             let path = entry.path();
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             if path.is_file() && ext.eq_ignore_ascii_case("dcp") {
                 let file_name = path.file_name().unwrap_or_default().to_string_lossy();
                 
-                // 完全一致に近い条件で探す (Mark III などの誤爆を防ぐため)
-                if file_name == target_filename || file_name == target_filename_fallback {
-                    return Some(path.to_path_buf());
+                // candidates に一致するプロファイルを優先順位が高い順に記録する
+                if let Some(idx) = candidates.iter().position(|c| c == file_name.as_ref()) {
+                    if idx < best_index {
+                        best_match = Some(path.to_path_buf());
+                        best_index = idx;
+                        
+                        // 最優先のプロファイル (idx == 0) が見つかったら即座に探索を打ち切る
+                        if idx == 0 {
+                            break;
+                        }
+                    }
                 }
             }
+        }
+
+        if best_match.is_some() {
+            return best_match;
         }
     }
 
