@@ -264,6 +264,14 @@ pub fn find_default_dcp(make: &str, model: &str) -> Option<std::path::PathBuf> {
 
         // 高速化のためのダイレクトルックアップ:
         for candidate in &candidates {
+            // パストラバーサル対策の最終防壁: 候補パスが単一のファイル名（Normalコンポーネントのみ）か確認する
+            // Windowsのドライブレター(C:)や特殊な記号によってパスが予期せず解釈されるのを防ぐため、
+            // 構成要素が「ファイル名一つだけ」でない場合は安全のためスキップする。
+            let mut comps = std::path::Path::new(candidate).components();
+            if !matches!(comps.next(), Some(std::path::Component::Normal(_))) || comps.next().is_some() {
+                continue;
+            }
+
             let direct_paths = [
                 base_dir.join("Adobe Standard").join(candidate),
                 base_dir.join(candidate),
