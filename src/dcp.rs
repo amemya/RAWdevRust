@@ -270,7 +270,7 @@ pub fn find_default_dcp(make: &str, model: &str) -> Option<std::path::PathBuf> {
             }
         }
 
-        // 見つからない場合は CameraProfiles ディレクトリツリー全体を幅優先・深さ制限で再帰探索する
+        // 見つからない場合は CameraProfiles ディレクトリツリー全体を深さ優先・深さ制限で再帰探索する
         // (最大3階層までに制限して起動時のI/O遅延を防ぐ)
         let walk_dir = walkdir::WalkDir::new(&base_dir)
             .max_depth(3)

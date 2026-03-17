@@ -42,8 +42,8 @@ fn main() {
     };
 
     // カラーパイプライン (in-place処理により中間Vecアロケーションを削減)
-    let dcp_path = cli.dcp.or_else(|| {
-        println!("No DCP profile specified. Searching for default Adobe profile for {} {}...", raw.make, raw.model);
+    let dcp_path = cli.dcp.as_ref().cloned().or_else(|| {
+        println!("No DCP profile specified. Searching for default Adobe profile for {} {}...", &raw.make, &raw.model);
         dcp::find_default_dcp(&raw.make, &raw.model)
     });
 
