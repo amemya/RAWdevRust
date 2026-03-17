@@ -216,6 +216,67 @@ pub fn load_dcp(path: &Path) -> Result<DcpProfile> {
     Ok(profile)
 }
 
+/// 自動検出：Mac/Windows の標準的な Adobe Camera Raw プロファイルパスから、
+/// 指定されたカメラの "Adobe Standard" プロファイルを探索して返します。
+pub fn find_default_dcp(make: &str, model: &str) -> Option<std::path::PathBuf> {
+    let clean_make = make.trim();
+    let clean_model = model.trim();
+
+    // 探索するルートディレクトリ (macOS と Windows)
+    let mut search_paths = Vec::new();
+
+    // macOS System
+    search_paths.push(std::path::PathBuf::from("/Library/Application Support/Adobe/CameraRaw/CameraProfiles"));
+    // macOS User
+    if let Some(home) = std::env::var_os("HOME") {
+        let mut p = std::path::PathBuf::from(home);
+        p.push("Library/Application Support/Adobe/CameraRaw/CameraProfiles");
+        search_paths.push(p);
+    }
+    // Windows ProgramData
+    if let Some(program_data) = std::env::var_os("PROGRAMDATA") {
+        let mut p = std::path::PathBuf::from(program_data);
+        p.push("Adobe/CameraRaw/CameraProfiles");
+        search_paths.push(p);
+    }
+    // Windows AppData
+    if let Some(app_data) = std::env::var_os("APPDATA") {
+        let mut p = std::path::PathBuf::from(app_data);
+        p.push("Adobe/CameraRaw/CameraProfiles");
+        search_paths.push(p);
+    }
+
+    // "Maker Model Adobe Standard.dcp" の形式等を想定して探索
+    for base_dir in search_paths {
+        if !base_dir.exists() {
+            continue;
+        }
+
+        // 基本的には "Adobe Standard" ディレクトリの下に機種名のフォルダ/ファイルがあるか
+        // または単純にファイル名に機種名が含まれる "Adobe Standard" を探索する
+        
+        let target_filename = format!("{} {} Adobe Standard.dcp", clean_make, clean_model);
+        let target_filename_fallback = format!("{} Adobe Standard.dcp", clean_model); // Makeが省略されるパターン
+
+        let walk_dir = walkdir::WalkDir::new(&base_dir).into_iter().filter_map(|e| e.ok());
+        for entry in walk_dir {
+            let path = entry.path();
+            if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("dcp") {
+                let file_name = path.file_name().unwrap_or_default().to_string_lossy();
+                
+                // Adobe Standard であり、かつモデル名が含まれるなら採用
+                // 注: .contains("Canon EOS-1D X") とすると "Canon EOS-1D X Mark III" まで合致してしまうため、
+                // 前方一致や完全一致に近い条件で探す
+                if file_name == target_filename || file_name == target_filename_fallback {
+                    return Some(path.to_path_buf());
+                }
+            }
+        }
+    }
+
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

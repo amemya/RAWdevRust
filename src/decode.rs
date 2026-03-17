@@ -23,6 +23,10 @@ pub struct RawData {
     pub cam_to_xyz: [[f32; 4]; 3],
     /// color_matrix を導出した時点でのテスト光源
     pub cam_illuminant: Option<Illuminant>,
+    /// カメラのメーカー名 (Make)
+    pub make: String,
+    /// カメラのモデル名 (Model)
+    pub model: String,
 }
 
 pub fn load(path: &Path) -> anyhow::Result<RawData> {
@@ -159,6 +163,8 @@ pub fn load(path: &Path) -> anyhow::Result<RawData> {
         wb_coeffs,
         cam_to_xyz,
         cam_illuminant,
+        make: rawimage.make.clone(),
+        model: rawimage.model.clone(),
     })
 }
 
