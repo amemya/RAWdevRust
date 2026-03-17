@@ -247,9 +247,14 @@ pub fn find_default_dcp(make: &str, model: &str) -> Option<std::path::PathBuf> {
         search_paths.push(p);
     }
 
-    // "Maker Model Adobe Standard.dcp" の形式等を想定して探索
+    // 探索ルートを決定して内部探索関数に委譲する
+    search_default_dcp_in_paths(&clean_make, &clean_model, &search_paths)
+}
+
+/// 指定された探索ディレクトリリストの中から、対象カメラの DCP を再帰的に探索して返す（テスト容易性のため分離）
+fn search_default_dcp_in_paths(clean_make: &str, clean_model: &str, search_paths: &[std::path::PathBuf]) -> Option<std::path::PathBuf> {
     for base_dir in search_paths {
-        if !base_dir.exists() {
+        if !base_dir.is_dir() {
             continue;
         }
 
@@ -297,9 +302,9 @@ pub fn find_default_dcp(make: &str, model: &str) -> Option<std::path::PathBuf> {
         for entry_res in walk_dir {
             let entry = match entry_res {
                 Ok(e) => e,
-                Err(err) => {
-                    // アクセス権限等によるエラーを警告として出力しつつ探索を継続する
-                    eprintln!("Warning: Failed to access directory during DCP search: {}", err);
+                Err(_err) => {
+                    // アクセス権限等によるエラー（システムフォルダへのアクセス等）が大量に出るのを防ぐため、
+                    // エラーは無視して探索を継続する（必要に応じて環境変数等でデバッグ制御することも視野に入れる）
                     continue;
                 }
             };
@@ -351,5 +356,35 @@ mod tests {
             }
             println!("\n];");
         }
+    }
+
+    #[test]
+    fn test_search_default_dcp_priority() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let base_dir = temp_dir.path().join("Adobe/CameraRaw/CameraProfiles");
+        std::fs::create_dir_all(&base_dir).unwrap();
+
+        let make = "TestMake";
+        let model = "TestModel";
+
+        // Create a fake Camera Standard profile
+        let camera_std_dir = base_dir.join("Camera/TestMake TestModel");
+        std::fs::create_dir_all(&camera_std_dir).unwrap();
+        let camera_std_path = camera_std_dir.join("TestMake TestModel Camera Standard.dcp");
+        std::fs::File::create(&camera_std_path).unwrap();
+
+        // Search should find the Camera Standard profile
+        let found = search_default_dcp_in_paths(make, model, &[base_dir.clone()]);
+        assert_eq!(found.map(|p| p.canonicalize().unwrap()), Some(camera_std_path.canonicalize().unwrap()));
+
+        // Now create a fake Adobe Standard profile (higher priority)
+        let adobe_std_dir = base_dir.join("Adobe Standard");
+        std::fs::create_dir_all(&adobe_std_dir).unwrap();
+        let adobe_std_path = adobe_std_dir.join("TestMake TestModel Adobe Standard.dcp");
+        std::fs::File::create(&adobe_std_path).unwrap();
+
+        // Search should now prioritize and return the Adobe Standard profile
+        let found2 = search_default_dcp_in_paths(make, model, &[base_dir.clone()]);
+        assert_eq!(found2.map(|p| p.canonicalize().unwrap()), Some(adobe_std_path.canonicalize().unwrap()));
     }
 }
