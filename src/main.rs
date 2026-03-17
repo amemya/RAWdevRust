@@ -42,9 +42,14 @@ fn main() {
     };
 
     // カラーパイプライン (in-place処理により中間Vecアロケーションを削減)
-    if let Some(dcp_path) = &cli.dcp {
-        println!("Loading DCP profile: {:?}", dcp_path);
-        match dcp::load_dcp(dcp_path) {
+    let dcp_path = cli.dcp.as_ref().cloned().or_else(|| {
+        println!("No DCP profile specified. Searching for default Adobe profile for {} {}...", &raw.make, &raw.model);
+        dcp::find_default_dcp(&raw.make, &raw.model)
+    });
+
+    if let Some(path) = dcp_path {
+        println!("Loading DCP profile: {:?}", path);
+        match dcp::load_dcp(&path) {
             Ok(profile) => {
                 if let Err(e) = color::apply_dcp(&mut linear, &profile, &raw.wb_coeffs) {
                     eprintln!("Failed to apply DCP: {}. Falling back to default.", e);
@@ -57,6 +62,7 @@ fn main() {
             }
         }
     } else {
+        println!("No DCP profile found. Using default color matrix.");
         apply_default_pipeline(&mut linear);
     }
 

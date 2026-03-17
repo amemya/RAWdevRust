@@ -216,6 +216,127 @@ pub fn load_dcp(path: &Path) -> Result<DcpProfile> {
     Ok(profile)
 }
 
+/// 自動検出：Mac/Windows の標準的な Adobe Camera Raw プロファイルパスから、
+/// 指定されたカメラの "Adobe Standard" プロファイルを探索して返します。
+pub fn find_default_dcp(make: &str, model: &str) -> Option<std::path::PathBuf> {
+    // パストラバーサルを防ぐため、パス区切り文字等を無害化する
+    let clean_make = make.trim().replace(|c| c == '/' || c == '\\', "_");
+    let clean_model = model.trim().replace(|c| c == '/' || c == '\\', "_");
+
+    // 探索するルートディレクトリ (macOS と Windows)
+    let mut search_paths = Vec::new();
+
+    // macOS System
+    search_paths.push(std::path::PathBuf::from("/Library/Application Support/Adobe/CameraRaw/CameraProfiles"));
+    // macOS User
+    if let Some(home) = std::env::var_os("HOME") {
+        let mut p = std::path::PathBuf::from(home);
+        p.push("Library/Application Support/Adobe/CameraRaw/CameraProfiles");
+        search_paths.push(p);
+    }
+    // Windows ProgramData
+    if let Some(program_data) = std::env::var_os("PROGRAMDATA") {
+        let mut p = std::path::PathBuf::from(program_data);
+        p.push("Adobe/CameraRaw/CameraProfiles");
+        search_paths.push(p);
+    }
+    // Windows AppData
+    if let Some(app_data) = std::env::var_os("APPDATA") {
+        let mut p = std::path::PathBuf::from(app_data);
+        p.push("Adobe/CameraRaw/CameraProfiles");
+        search_paths.push(p);
+    }
+
+    // 探索ルートを決定して内部探索関数に委譲する
+    search_default_dcp_in_paths(&clean_make, &clean_model, &search_paths)
+}
+
+/// 指定された探索ディレクトリリストの中から、対象カメラの DCP を再帰的に探索して返す（テスト容易性のため分離）
+fn search_default_dcp_in_paths(clean_make: &str, clean_model: &str, search_paths: &[std::path::PathBuf]) -> Option<std::path::PathBuf> {
+    for base_dir in search_paths {
+        if !base_dir.is_dir() {
+            continue;
+        }
+
+        // 優先度順のターゲットファイル名リスト
+        // Adobe Standard を最優先し、存在しなければ Camera Standard へフォールバックする
+        let candidates = [
+            format!("{} {} Adobe Standard.dcp", clean_make, clean_model),
+            format!("{} Adobe Standard.dcp", clean_model),
+            format!("{} {} Camera Standard.dcp", clean_make, clean_model),
+            format!("{} Camera Standard.dcp", clean_model),
+        ];
+
+        // 高速化のためのダイレクトルックアップ:
+        for candidate in &candidates {
+            // パストラバーサル対策の最終防壁: 候補パスが単一のファイル名（Normalコンポーネントのみ）か確認する
+            // Windowsのドライブレター(C:)や特殊な記号によってパスが予期せず解釈されるのを防ぐため、
+            // 構成要素が「ファイル名一つだけ」でない場合は安全のためスキップする。
+            let mut comps = std::path::Path::new(candidate).components();
+            if !matches!(comps.next(), Some(std::path::Component::Normal(_))) || comps.next().is_some() {
+                continue;
+            }
+
+            let direct_paths = [
+                base_dir.join("Adobe Standard").join(candidate),
+                base_dir.join(candidate),
+                // Camera Standard 系はプロファイル名フォルダ配下にあることが多いが、
+                // それは後続の WalkDir で拾うためここではルート直下のみをチェック
+            ];
+            for direct_path in &direct_paths {
+                if direct_path.is_file() {
+                    return Some(direct_path.clone());
+                }
+            }
+        }
+
+        // 見つからない場合は CameraProfiles ディレクトリツリー全体を深さ優先・深さ制限で再帰探索する
+        // (最大3階層までに制限して起動時のI/O遅延を防ぐ)
+        let walk_dir = walkdir::WalkDir::new(&base_dir)
+            .max_depth(3)
+            .into_iter();
+
+        let mut best_match = None;
+        let mut best_index = usize::MAX;
+
+        for entry_res in walk_dir {
+            let entry = match entry_res {
+                Ok(e) => e,
+                Err(_err) => {
+                    // アクセス権限等によるエラー（システムフォルダへのアクセス等）が大量に出るのを防ぐため、
+                    // エラーは無視して探索を継続する（必要に応じて環境変数等でデバッグ制御することも視野に入れる）
+                    continue;
+                }
+            };
+            
+            let path = entry.path();
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            if path.is_file() && ext.eq_ignore_ascii_case("dcp") {
+                let file_name = path.file_name().unwrap_or_default().to_string_lossy();
+                
+                // candidates に一致するプロファイルを優先順位が高い順に記録する
+                if let Some(idx) = candidates.iter().position(|c| c == file_name.as_ref()) {
+                    if idx < best_index {
+                        best_match = Some(path.to_path_buf());
+                        best_index = idx;
+                        
+                        // 最優先のプロファイル (idx == 0) が見つかったら即座に探索を打ち切る
+                        if idx == 0 {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        if best_match.is_some() {
+            return best_match;
+        }
+    }
+
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -235,5 +356,35 @@ mod tests {
             }
             println!("\n];");
         }
+    }
+
+    #[test]
+    fn test_search_default_dcp_priority() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let base_dir = temp_dir.path().join("Adobe/CameraRaw/CameraProfiles");
+        std::fs::create_dir_all(&base_dir).unwrap();
+
+        let make = "TestMake";
+        let model = "TestModel";
+
+        // Create a fake Camera Standard profile
+        let camera_std_dir = base_dir.join("Camera/TestMake TestModel");
+        std::fs::create_dir_all(&camera_std_dir).unwrap();
+        let camera_std_path = camera_std_dir.join("TestMake TestModel Camera Standard.dcp");
+        std::fs::File::create(&camera_std_path).unwrap();
+
+        // Search should find the Camera Standard profile
+        let found = search_default_dcp_in_paths(make, model, &[base_dir.clone()]);
+        assert_eq!(found.map(|p| p.canonicalize().unwrap()), Some(camera_std_path.canonicalize().unwrap()));
+
+        // Now create a fake Adobe Standard profile (higher priority)
+        let adobe_std_dir = base_dir.join("Adobe Standard");
+        std::fs::create_dir_all(&adobe_std_dir).unwrap();
+        let adobe_std_path = adobe_std_dir.join("TestMake TestModel Adobe Standard.dcp");
+        std::fs::File::create(&adobe_std_path).unwrap();
+
+        // Search should now prioritize and return the Adobe Standard profile
+        let found2 = search_default_dcp_in_paths(make, model, &[base_dir.clone()]);
+        assert_eq!(found2.map(|p| p.canonicalize().unwrap()), Some(adobe_std_path.canonicalize().unwrap()));
     }
 }
