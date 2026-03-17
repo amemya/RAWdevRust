@@ -252,21 +252,37 @@ pub fn find_default_dcp(make: &str, model: &str) -> Option<std::path::PathBuf> {
             continue;
         }
 
-        // 基本的には "Adobe Standard" ディレクトリの下に機種名のフォルダ/ファイルがあるか
-        // または単純にファイル名に機種名が含まれる "Adobe Standard" を探索する
-        
         let target_filename = format!("{} {} Adobe Standard.dcp", clean_make, clean_model);
         let target_filename_fallback = format!("{} Adobe Standard.dcp", clean_model); // Makeが省略されるパターン
 
-        let walk_dir = walkdir::WalkDir::new(&base_dir).into_iter().filter_map(|e| e.ok());
+        // 高速化のためのダイレクトルックアップ:
+        // Adobe Standardプロファイルは通常 "Adobe Standard" サブディレクトリ直下にある
+        let direct_paths = [
+            base_dir.join("Adobe Standard").join(&target_filename),
+            base_dir.join("Adobe Standard").join(&target_filename_fallback),
+            base_dir.join(&target_filename),
+            base_dir.join(&target_filename_fallback),
+        ];
+
+        for direct_path in direct_paths {
+            if direct_path.is_file() {
+                return Some(direct_path);
+            }
+        }
+
+        // 見つからない場合は CameraProfiles ディレクトリツリー全体を幅優先・深さ制限で再帰探索する
+        // (最大3階層までに制限して起動時のI/O遅延を防ぐ)
+        let walk_dir = walkdir::WalkDir::new(&base_dir)
+            .max_depth(3)
+            .into_iter()
+            .filter_map(|e| e.ok());
+
         for entry in walk_dir {
             let path = entry.path();
             if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("dcp") {
                 let file_name = path.file_name().unwrap_or_default().to_string_lossy();
                 
-                // Adobe Standard であり、かつモデル名が含まれるなら採用
-                // 注: .contains("Canon EOS-1D X") とすると "Canon EOS-1D X Mark III" まで合致してしまうため、
-                // 前方一致や完全一致に近い条件で探す
+                // 完全一致に近い条件で探す (Mark III などの誤爆を防ぐため)
                 if file_name == target_filename || file_name == target_filename_fallback {
                     return Some(path.to_path_buf());
                 }
