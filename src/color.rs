@@ -358,11 +358,20 @@ fn apply_3d_lut_hsv(pixels: &mut [f32], dims: [u32; 3], data: &[f32], is_look_ta
 
         let h_norm = (h / 360.0).clamp(0.0, 1.0);
         let s_norm = s.clamp(0.0, 1.0);
+
+        // v can be negative if the color matrix result was out of gamut.
+        // powf with negative base returns NaN, so we clamp v to [0, 1] first.
+        let v_safe = v.clamp(0.0, 1.0);
+
         // The DNG specification says ProfileLookTable is indexed by HSV values that
         // correspond to a generic base curve applied to linear ProPhoto RGB.
         // We'll use a simple gamma 1/1.8 approximation just for indexing.
-        let v_gamma = if is_look_table { v.powf(1.0 / 1.8) } else { v };
+        let v_gamma = if is_look_table { v_safe.powf(1.0 / 1.8) } else { v_safe };
         let v_norm = v_gamma.clamp(0.0, 1.0);
+
+        if v_norm.is_nan() || s_norm.is_nan() || h_norm.is_nan() {
+            continue; // Prevent NaN from corrupting indices or pixel values
+        }
 
         // Trilinear Interpolation
         let hf = h_norm * dh as f32;
