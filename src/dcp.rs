@@ -279,7 +279,8 @@ pub fn find_default_dcp(make: &str, model: &str) -> Option<std::path::PathBuf> {
 
         for entry in walk_dir {
             let path = entry.path();
-            if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("dcp") {
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            if path.is_file() && ext.eq_ignore_ascii_case("dcp") {
                 let file_name = path.file_name().unwrap_or_default().to_string_lossy();
                 
                 // 完全一致に近い条件で探す (Mark III などの誤爆を防ぐため)
