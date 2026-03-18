@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 
 mod color;
 mod dcp;
@@ -21,6 +21,16 @@ struct Cli {
     /// DCP Profile (Optional)
     #[arg(long)]
     dcp: Option<PathBuf>,
+
+    /// Output Color Space
+    #[arg(long, value_enum, default_value_t = ColorSpaceOpt::Srgb)]
+    color_space: ColorSpaceOpt,
+}
+
+#[derive(ValueEnum, Clone, Debug)]
+enum ColorSpaceOpt {
+    Srgb,
+    P3,
 }
 
 fn main() {
@@ -36,9 +46,15 @@ fn main() {
     // デモザイク（RCD）→ linear Camera RGB
     let mut linear = demosaic::rcd::run(&raw);
 
+    // カラースペースの選択
+    let target_color_space = match cli.color_space {
+        ColorSpaceOpt::Srgb => color::TargetColorSpace::Srgb,
+        ColorSpaceOpt::P3 => color::TargetColorSpace::DisplayP3,
+    };
+
     let apply_default_pipeline = |pixels: &mut [f32]| {
         color::apply_wb(pixels, &raw.wb_coeffs);
-        color::apply_color_matrix(pixels, &raw.cam_to_xyz, raw.cam_illuminant);
+        color::apply_color_matrix(pixels, &raw.cam_to_xyz, raw.cam_illuminant, target_color_space);
     };
 
     // カラーパイプライン (in-place処理により中間Vecアロケーションを削減)
@@ -51,7 +67,7 @@ fn main() {
         println!("Loading DCP profile: {:?}", path);
         match dcp::load_dcp(&path) {
             Ok(profile) => {
-                if let Err(e) = color::apply_dcp(&mut linear, &profile, &raw.wb_coeffs) {
+                if let Err(e) = color::apply_dcp(&mut linear, &profile, &raw.wb_coeffs, target_color_space) {
                     eprintln!("Failed to apply DCP: {}. Falling back to default.", e);
                     apply_default_pipeline(&mut linear);
                 }
