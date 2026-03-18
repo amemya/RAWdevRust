@@ -57,7 +57,22 @@ pub fn load(path: &Path) -> anyhow::Result<RawData> {
         let mut bufreader = std::io::BufReader::new(file);
         if let Ok(exif) = exif::Reader::new().read_from_container(&mut bufreader) {
             let parse_str = |t: exif::Tag| -> Option<String> {
-                exif.get_field(t, exif::In::PRIMARY).map(|f| f.display_value().to_string().replace("\"", ""))
+                if let Some(f) = exif.get_field(t, exif::In::PRIMARY) {
+                    match &f.value {
+                        exif::Value::Ascii(v) => {
+                            if let Some(bytes) = v.first() {
+                                let end = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
+                                return String::from_utf8_lossy(&bytes[..end])
+                                    .into_owned()
+                                    .trim()
+                                    .to_string()
+                                    .into();
+                            }
+                        },
+                        _ => return Some(f.display_value().to_string().replace('"', "").trim().to_string()),
+                    }
+                }
+                None
             };
             let parse_srational = |tag: exif::Tag| -> Option<(i32, i32)> {
                 if let Some(f) = exif.get_field(tag, exif::In::PRIMARY) {

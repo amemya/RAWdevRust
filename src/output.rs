@@ -27,7 +27,7 @@ pub fn save_png(rgb: &[u8], width: usize, height: usize, path: &Path, exif_info:
         metadata.set_tag(ExifTag::DateTimeOriginal(dt.clone()));
     }
     if let Some(iso) = exif_info.iso {
-        metadata.set_tag(ExifTag::ISO(vec![iso as u16]));
+        metadata.set_tag(ExifTag::ISO(vec![iso.min(u16::MAX as u32) as u16]));
     }
     if let Some((n, d)) = exif_info.f_number {
         metadata.set_tag(ExifTag::FNumber(vec![uR64 { nominator: n, denominator: d }]));
@@ -82,7 +82,7 @@ pub fn save_png(rgb: &[u8], width: usize, height: usize, path: &Path, exif_info:
         } else {
             dt.clone()
         };
-        xmp.push_str(&format!("   <exif:DateTimeOriginal>{}</exif:DateTimeOriginal>\n", dt_iso));
+        xmp.push_str(&format!("   <exif:DateTimeOriginal>{}</exif:DateTimeOriginal>\n", html_escape(&dt_iso)));
     }
     if let Some((n, d)) = exif_info.f_number {
         xmp.push_str(&format!("   <exif:FNumber>{}/{}</exif:FNumber>\n", n, d));
