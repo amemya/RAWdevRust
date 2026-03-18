@@ -242,6 +242,13 @@ pub fn load(path: &Path) -> anyhow::Result<RawData> {
         (pixels_full, full_width, full_h, cfa_full)
     };
 
+    if exif_info.make.is_none() {
+        exif_info.make = Some(rawimage.make.clone());
+    }
+    if exif_info.model.is_none() {
+        exif_info.model = Some(rawimage.model.clone());
+    }
+
     Ok(RawData {
         pixels,
         width,

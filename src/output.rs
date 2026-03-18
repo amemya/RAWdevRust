@@ -14,7 +14,14 @@ pub fn save_ppm(rgb: &[u8], width: usize, height: usize, path: &Path) -> anyhow:
 }
 
 /// RGBRGB... バッファを PNG ファイルとして保存 (PNG-24: 8-bit RGB)
-pub fn save_png(rgb: &[u8], width: usize, height: usize, path: &Path, exif_info: &crate::decode::ExifInfo) -> anyhow::Result<()> {
+pub fn save_png(
+    rgb: &[u8],
+    width: usize,
+    height: usize,
+    path: &Path,
+    exif_info: &crate::decode::ExifInfo,
+    color_space: crate::color::TargetColorSpace,
+) -> anyhow::Result<()> {
     let mut metadata = Metadata::new();
     
     if let Some(make) = &exif_info.make {
@@ -51,7 +58,26 @@ pub fn save_png(rgb: &[u8], width: usize, height: usize, path: &Path, exif_info:
     encoder.set_color(png::ColorType::Rgb);
     encoder.set_depth(png::BitDepth::Eight);
     
+    if color_space == crate::color::TargetColorSpace::Srgb {
+        encoder.set_source_srgb(png::SrgbRenderingIntent::Perceptual);
+    }
+    
     let mut writer = encoder.write_header()?;
+    
+    if color_space == crate::color::TargetColorSpace::DisplayP3 {
+        let icc_data = include_bytes!("../assets/profiles/DisplayP3.icc");
+        let mut zlib_encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+        std::io::Write::write_all(&mut zlib_encoder, icc_data)?;
+        let compressed_icc = zlib_encoder.finish()?;
+        
+        let mut iccp_payload = Vec::new();
+        iccp_payload.extend_from_slice(b"Display P3");
+        iccp_payload.push(0); 
+        iccp_payload.push(0); 
+        iccp_payload.extend_from_slice(&compressed_icc);
+        
+        writer.write_chunk(png::chunk::ChunkType(*b"iCCP"), &iccp_payload)?;
+    }
     
     // ネイティブな eXIf チャンクを注入
     writer.write_chunk(png::chunk::ChunkType(*b"eXIf"), &encoded_metadata)?;

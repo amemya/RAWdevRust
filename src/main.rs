@@ -86,13 +86,14 @@ fn main() {
 
     // 出力フォーマットの出し分け
     let ext = cli.output.extension().and_then(|e| e.to_str()).unwrap_or("");
-    if ext.eq_ignore_ascii_case("ppm") {
+    if ext == "" || ext.eq_ignore_ascii_case("ppm") {
         output::save_ppm(&rgb, raw.width, raw.height, &cli.output).expect("Failed to write PPM output");
     } else if ext.eq_ignore_ascii_case("png") {
-        output::save_png(&rgb, raw.width, raw.height, &cli.output, &raw.exif).expect("Failed to write PNG output");
+        output::save_png(&rgb, raw.width, raw.height, &cli.output, &raw.exif, target_color_space).expect("Failed to write PNG output");
     } else {
-        eprintln!("Error: Unsupported output extension '{}'. Please use .ppm or .png.", ext);
-        std::process::exit(1);
+        eprintln!("Unsupported output extension: {}", ext);
+        eprintln!("Writing as PPM by default...");
+        output::save_ppm(&rgb, raw.width, raw.height, &cli.output.with_extension("ppm")).expect("Failed to write PPM output");
     }
 
     println!("Done: {:?}", cli.output);
