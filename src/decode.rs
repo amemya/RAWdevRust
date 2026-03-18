@@ -17,6 +17,11 @@ pub struct ExifInfo {
     pub f_number: Option<(u32, u32)>,
     pub exposure_time: Option<(u32, u32)>,
     pub focal_length: Option<(u32, u32)>,
+    pub lens_model: Option<String>,
+    pub metering_mode: Option<u16>,
+    pub exposure_program: Option<u16>,
+    pub exposure_bias: Option<(i32, i32)>,
+    pub white_balance: Option<u16>,
 }
 
 /// rawlerから取り出したベイヤー配列と必要なメタデータ
@@ -54,9 +59,34 @@ pub fn load(path: &Path) -> anyhow::Result<RawData> {
             let parse_str = |t: exif::Tag| -> Option<String> {
                 exif.get_field(t, exif::In::PRIMARY).map(|f| f.display_value().to_string().replace("\"", ""))
             };
+            let parse_srational = |tag: exif::Tag| -> Option<(i32, i32)> {
+                if let Some(f) = exif.get_field(tag, exif::In::PRIMARY) {
+                    if let exif::Value::SRational(v) = &f.value {
+                        if let Some(r) = v.first() {
+                            return Some((r.num, r.denom));
+                        }
+                    }
+                }
+                None
+            };
+            
+            let parse_u16 = |tag: exif::Tag| -> Option<u16> {
+                if let Some(f) = exif.get_field(tag, exif::In::PRIMARY) {
+                    if let exif::Value::Short(v) = &f.value {
+                        return v.first().copied();
+                    }
+                }
+                None
+            };
+            
             exif_info.make = parse_str(exif::Tag::Make);
             exif_info.model = parse_str(exif::Tag::Model);
             exif_info.datetime = parse_str(exif::Tag::DateTimeOriginal);
+            exif_info.lens_model = parse_str(exif::Tag::LensModel);
+            exif_info.metering_mode = parse_u16(exif::Tag::MeteringMode);
+            exif_info.exposure_program = parse_u16(exif::Tag::ExposureProgram);
+            exif_info.white_balance = parse_u16(exif::Tag::WhiteBalance);
+            exif_info.exposure_bias = parse_srational(exif::Tag::ExposureBiasValue);
             
             if let Some(f) = exif.get_field(exif::Tag::PhotographicSensitivity, exif::In::PRIMARY) {
                 if let exif::Value::Short(v) = &f.value {
