@@ -8,6 +8,22 @@ use rawler::{
     rawsource::RawSource,
 };
 
+#[derive(Debug, Clone, Default)]
+pub struct ExifInfo {
+    pub make: Option<String>,
+    pub model: Option<String>,
+    pub datetime: Option<String>,
+    pub iso: Option<u32>,
+    pub f_number: Option<(u32, u32)>,
+    pub exposure_time: Option<(u32, u32)>,
+    pub focal_length: Option<(u32, u32)>,
+    pub lens_model: Option<String>,
+    pub metering_mode: Option<u16>,
+    pub exposure_program: Option<u16>,
+    pub exposure_bias: Option<(i32, i32)>,
+    pub white_balance: Option<u16>,
+}
+
 /// rawlerから取り出したベイヤー配列と必要なメタデータ
 pub struct RawData {
     pub pixels: Vec<u16>,
@@ -27,12 +43,85 @@ pub struct RawData {
     pub make: String,
     /// カメラのモデル名 (Model)
     pub model: String,
+    /// 抽出されたその他の EXIF 情報
+    pub exif: ExifInfo,
 }
 
 pub fn load(path: &Path) -> anyhow::Result<RawData> {
     let rawsource = RawSource::new(path)?;
     let params = RawDecodeParams::default();
     let rawimage = rawler::get_decoder(&rawsource)?.raw_image(&rawsource, &params, false)?;
+
+    let mut exif_info = ExifInfo::default();
+    if let Ok(file) = std::fs::File::open(path) {
+        let mut bufreader = std::io::BufReader::new(file);
+        if let Ok(exif) = exif::Reader::new().read_from_container(&mut bufreader) {
+            let parse_str = |t: exif::Tag| -> Option<String> {
+                if let Some(f) = exif.get_field(t, exif::In::PRIMARY) {
+                    match &f.value {
+                        exif::Value::Ascii(v) => {
+                            if let Some(bytes) = v.first() {
+                                let end = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
+                                return String::from_utf8_lossy(&bytes[..end])
+                                    .into_owned()
+                                    .trim()
+                                    .to_string()
+                                    .into();
+                            }
+                        },
+                        _ => return Some(f.display_value().to_string().replace('"', "").trim().to_string()),
+                    }
+                }
+                None
+            };
+            let parse_srational = |tag: exif::Tag| -> Option<(i32, i32)> {
+                if let Some(f) = exif.get_field(tag, exif::In::PRIMARY) {
+                    if let exif::Value::SRational(v) = &f.value {
+                        if let Some(r) = v.first() {
+                            return Some((r.num, r.denom));
+                        }
+                    }
+                }
+                None
+            };
+            
+            let parse_u16 = |tag: exif::Tag| -> Option<u16> {
+                if let Some(f) = exif.get_field(tag, exif::In::PRIMARY) {
+                    if let exif::Value::Short(v) = &f.value {
+                        return v.first().copied();
+                    }
+                }
+                None
+            };
+            
+            exif_info.make = parse_str(exif::Tag::Make);
+            exif_info.model = parse_str(exif::Tag::Model);
+            exif_info.datetime = parse_str(exif::Tag::DateTimeOriginal);
+            exif_info.lens_model = parse_str(exif::Tag::LensModel);
+            exif_info.metering_mode = parse_u16(exif::Tag::MeteringMode);
+            exif_info.exposure_program = parse_u16(exif::Tag::ExposureProgram);
+            exif_info.white_balance = parse_u16(exif::Tag::WhiteBalance);
+            exif_info.exposure_bias = parse_srational(exif::Tag::ExposureBiasValue);
+            
+            if let Some(f) = exif.get_field(exif::Tag::PhotographicSensitivity, exif::In::PRIMARY) {
+                if let exif::Value::Short(v) = &f.value {
+                    if let Some(val) = v.first() { exif_info.iso = Some(*val as u32); }
+                }
+            }
+            
+            let parse_rat = |t: exif::Tag| -> Option<(u32, u32)> {
+                if let Some(f) = exif.get_field(t, exif::In::PRIMARY) {
+                    if let exif::Value::Rational(v) = &f.value {
+                        if let Some(r) = v.first() { return Some((r.num, r.denom)); }
+                    }
+                }
+                None
+            };
+            exif_info.f_number = parse_rat(exif::Tag::FNumber);
+            exif_info.exposure_time = parse_rat(exif::Tag::ExposureTime);
+            exif_info.focal_length = parse_rat(exif::Tag::FocalLength);
+        }
+    }
 
     let full_width = rawimage.width;
 
@@ -165,6 +254,7 @@ pub fn load(path: &Path) -> anyhow::Result<RawData> {
         cam_illuminant,
         make: rawimage.make,
         model: rawimage.model,
+        exif: exif_info,
     })
 }
 
