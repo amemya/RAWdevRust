@@ -73,7 +73,7 @@ fn main() {
     if ext.eq_ignore_ascii_case("ppm") {
         output::save_ppm(&rgb, raw.width, raw.height, &cli.output).expect("Failed to write PPM output");
     } else if ext.eq_ignore_ascii_case("png") {
-        output::save_png(&rgb, raw.width, raw.height, &cli.output).expect("Failed to write PNG output");
+        output::save_png(&rgb, raw.width, raw.height, &cli.output, &raw.exif).expect("Failed to write PNG output");
     } else {
         eprintln!("Error: Unsupported output extension '{}'. Please use .ppm or .png.", ext);
         std::process::exit(1);
