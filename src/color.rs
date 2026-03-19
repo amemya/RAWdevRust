@@ -1,4 +1,4 @@
-use crate::demosaic::linear_to_srgb;
+use crate::demosaic::apply_srgb_transfer_curve;
 use rawler::imgop::xyz::Illuminant;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -114,7 +114,7 @@ pub fn apply_color_matrix(
 /// Step 3: linear sRGB → sRGB ガンマ変換 + u8 変換
 pub fn apply_gamma(pixels: &[f32]) -> Vec<u8> {
     let mut out = Vec::with_capacity(pixels.len());
-    out.extend(pixels.iter().map(|&v| linear_to_srgb(v)));
+    out.extend(pixels.iter().map(|&v| apply_srgb_transfer_curve(v)));
     out
 }
 

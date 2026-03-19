@@ -1,4 +1,4 @@
-use super::linear_to_srgb;
+use super::apply_srgb_transfer_curve;
 use crate::decode::RawData;
 
 /// Bilinear デモザイク
