@@ -56,7 +56,7 @@ pub fn apply_wb(pixels: &mut [f32], wb_coeffs: &[f32; 4]) {
     }
 }
 
-/// Step 2: Camera RGB → linear sRGB
+/// Step 2: Camera RGB → linear Target RGB (sRGB or Display P3)
 ///
 /// cam_to_xyz:      rawimage.color_matrixから取得した cam_to_xyz [[f32;4];3]
 /// cam_illuminant:  color_matrix 導出時のテスト光源。
@@ -139,7 +139,7 @@ fn mat3x3_mul(a: &[[f32; 3]; 3], b: &[[f32; 3]; 3]) -> [[f32; 3]; 3] {
 ///
 /// wb_coeffs を乗算して White Balanced Camera RGB とし、
 /// DCP の ForwardMatrix を用いて XYZ(D50) に変換し、
-/// さらに sRGB (linear) へ変換。その後 ToneCurve を適用します。
+/// さらに指定された Target RGB (linear) へ変換。その後 ToneCurve を最終出力空間で適用します。
 pub fn apply_dcp(pixels: &mut [f32], dcp: &crate::dcp::DcpProfile, wb_coeffs: &[f32; 4], color_space: TargetColorSpace) -> anyhow::Result<()> {
     // Validate ForwardMatrix before mutating any pixels
     // Prefer ForwardMatrix1 by default; fall back to ForwardMatrix2 if needed.
