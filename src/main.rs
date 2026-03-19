@@ -86,15 +86,20 @@ fn main() {
 
     // 出力フォーマットの出し分け
     let ext = cli.output.extension().and_then(|e| e.to_str()).unwrap_or("");
-    if ext == "" || ext.eq_ignore_ascii_case("ppm") {
-        output::save_ppm(&rgb, raw.width, raw.height, &cli.output).expect("Failed to write PPM output");
+    let final_output = if ext == "" || ext.eq_ignore_ascii_case("ppm") {
+        let out_path = cli.output.with_extension("ppm");
+        output::save_ppm(&rgb, raw.width, raw.height, &out_path).expect("Failed to write PPM output");
+        out_path
     } else if ext.eq_ignore_ascii_case("png") {
         output::save_png(&rgb, raw.width, raw.height, &cli.output, &raw.exif, target_color_space).expect("Failed to write PNG output");
+        cli.output.clone()
     } else {
         eprintln!("Unsupported output extension: {}", ext);
         eprintln!("Writing as PPM by default...");
-        output::save_ppm(&rgb, raw.width, raw.height, &cli.output.with_extension("ppm")).expect("Failed to write PPM output");
-    }
+        let out_path = cli.output.with_extension("ppm");
+        output::save_ppm(&rgb, raw.width, raw.height, &out_path).expect("Failed to write PPM output");
+        out_path
+    };
 
-    println!("Done: {:?}", cli.output);
+    println!("Done: {:?}", final_output);
 }
