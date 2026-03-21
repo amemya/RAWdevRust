@@ -1,5 +1,11 @@
-use crate::demosaic::linear_to_srgb;
+use crate::demosaic::apply_srgb_transfer_curve;
 use rawler::imgop::xyz::Illuminant;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TargetColorSpace {
+    Srgb,
+    DisplayP3,
+}
 
 // 標準の色空間変換マトリクス群
 #[rustfmt::skip]
@@ -7,6 +13,13 @@ pub const XYZ_TO_SRGB: [[f32; 3]; 3] = [
     [ 3.2404542, -1.5371385, -0.4985314],
     [-0.9692660,  1.8760108,  0.0415560],
     [ 0.0556434, -0.2040259,  1.0572252],
+];
+
+#[rustfmt::skip]
+pub const XYZ_TO_DISPLAY_P3: [[f32; 3]; 3] = [
+    [ 2.4934969, -0.9313836, -0.4027108],
+    [-0.8294890,  1.7626641,  0.0236246],
+    [ 0.0358458, -0.0761724,  0.9568845],
 ];
 
 #[rustfmt::skip]
@@ -43,7 +56,7 @@ pub fn apply_wb(pixels: &mut [f32], wb_coeffs: &[f32; 4]) {
     }
 }
 
-/// Step 2: Camera RGB → linear sRGB
+/// Step 2: Camera RGB → linear Target RGB (sRGB or Display P3)
 ///
 /// cam_to_xyz:      rawimage.color_matrixから取得した cam_to_xyz [[f32;4];3]
 /// cam_illuminant:  color_matrix 導出時のテスト光源。
@@ -52,14 +65,18 @@ pub fn apply_color_matrix(
     pixels: &mut [f32],
     cam_to_xyz: &[[f32; 4]; 3],
     cam_illuminant: Option<Illuminant>,
+    color_space: TargetColorSpace,
 ) {
     assert!(
         pixels.len() % 3 == 0,
         "apply_color_matrix expects RGBRGB... packed array"
     );
 
-    // XYZ(D65) → linear sRGB 行列（IEC 61966-2-1）
-    let xyz_to_srgb = XYZ_TO_SRGB;
+    // XYZ(D65) → linear Target RGB
+    let xyz_to_rgb = match color_space {
+        TargetColorSpace::Srgb => XYZ_TO_SRGB,
+        TargetColorSpace::DisplayP3 => XYZ_TO_DISPLAY_P3,
+    };
 
     // cam_to_xyz の 3×3 部分を抽出
     let c2x = [
@@ -71,16 +88,16 @@ pub fn apply_color_matrix(
     // D50 ベースの場合は Bradford クロマティック適応 D50→D65 を追加
     let bradford_d50_to_d65 = BRADFORD_D50_TO_D65;
 
-    // 合成行列: sRGB = (xyz_to_srgb) · [Bradford?] · cam_to_xyz · cam_rgb
+    // 合成行列: RGB = (xyz_to_rgb) · [Bradford?] · cam_to_xyz · cam_rgb
     let full: [[f32; 3]; 3] = match cam_illuminant {
         Some(Illuminant::D50) => {
             let adapted = mat3x3_mul(&bradford_d50_to_d65, &c2x);
-            mat3x3_mul(&xyz_to_srgb, &adapted)
+            mat3x3_mul(&xyz_to_rgb, &adapted)
         }
-        Some(Illuminant::D65) => mat3x3_mul(&xyz_to_srgb, &c2x),
+        Some(Illuminant::D65) => mat3x3_mul(&xyz_to_rgb, &c2x),
         _ => {
             // 他の光源、または未知の場合は誤ったBradford適応を避ける
-            mat3x3_mul(&xyz_to_srgb, &c2x)
+            mat3x3_mul(&xyz_to_rgb, &c2x)
         }
     };
 
@@ -94,10 +111,10 @@ pub fn apply_color_matrix(
     }
 }
 
-/// Step 3: linear sRGB → sRGB ガンマ変換 + u8 変換
+/// Step 3: linear Target RGB → sRGB伝達関数（ガンマ）適用 + u8 変換
 pub fn apply_gamma(pixels: &[f32]) -> Vec<u8> {
     let mut out = Vec::with_capacity(pixels.len());
-    out.extend(pixels.iter().map(|&v| linear_to_srgb(v)));
+    out.extend(pixels.iter().map(|&v| apply_srgb_transfer_curve(v)));
     out
 }
 
@@ -122,8 +139,8 @@ fn mat3x3_mul(a: &[[f32; 3]; 3], b: &[[f32; 3]; 3]) -> [[f32; 3]; 3] {
 ///
 /// wb_coeffs を乗算して White Balanced Camera RGB とし、
 /// DCP の ForwardMatrix を用いて XYZ(D50) に変換し、
-/// さらに sRGB (linear) へ変換。その後 ToneCurve を適用します。
-pub fn apply_dcp(pixels: &mut [f32], dcp: &crate::dcp::DcpProfile, wb_coeffs: &[f32; 4]) -> anyhow::Result<()> {
+/// さらに指定された Target RGB (linear) へ変換。その後 ToneCurve を最終出力空間で適用します。
+pub fn apply_dcp(pixels: &mut [f32], dcp: &crate::dcp::DcpProfile, wb_coeffs: &[f32; 4], color_space: TargetColorSpace) -> anyhow::Result<()> {
     // Validate ForwardMatrix before mutating any pixels
     // Prefer ForwardMatrix1 by default; fall back to ForwardMatrix2 if needed.
     let forward = dcp.forward_matrix1.as_ref()
@@ -143,20 +160,23 @@ pub fn apply_dcp(pixels: &mut [f32], dcp: &crate::dcp::DcpProfile, wb_coeffs: &[
     // 1. WB適用 (Safe to mutate now)
     apply_wb(pixels, wb_coeffs);
 
-    // XYZ(D65) -> sRGB
-    let xyz_d65_to_srgb = XYZ_TO_SRGB;
+    // XYZ(D65) -> Target RGB
+    let xyz_d65_to_rgb = match color_space {
+        TargetColorSpace::Srgb => XYZ_TO_SRGB,
+        TargetColorSpace::DisplayP3 => XYZ_TO_DISPLAY_P3,
+    };
 
     // Bradford D50 -> D65
     let d50_to_d65 = BRADFORD_D50_TO_D65;
 
-    // ForwardMatrix -> XYZ(D50) -> XYZ(D65) -> sRGB
-    let d50_srgb = mat3x3_mul(&xyz_d65_to_srgb, &d50_to_d65);
-    let cam_to_srgb = mat3x3_mul(&d50_srgb, &fm);
+    // ForwardMatrix -> XYZ(D50) -> XYZ(D65) -> Target RGB
+    let d50_rgb = mat3x3_mul(&xyz_d65_to_rgb, &d50_to_d65);
+    let cam_to_rgb = mat3x3_mul(&d50_rgb, &fm);
 
     for p in pixels.chunks_exact_mut(3) {
-        let r = cam_to_srgb[0][0] * p[0] + cam_to_srgb[0][1] * p[1] + cam_to_srgb[0][2] * p[2];
-        let g = cam_to_srgb[1][0] * p[0] + cam_to_srgb[1][1] * p[1] + cam_to_srgb[1][2] * p[2];
-        let b = cam_to_srgb[2][0] * p[0] + cam_to_srgb[2][1] * p[1] + cam_to_srgb[2][2] * p[2];
+        let r = cam_to_rgb[0][0] * p[0] + cam_to_rgb[0][1] * p[1] + cam_to_rgb[0][2] * p[2];
+        let g = cam_to_rgb[1][0] * p[0] + cam_to_rgb[1][1] * p[1] + cam_to_rgb[1][2] * p[2];
+        let b = cam_to_rgb[2][0] * p[0] + cam_to_rgb[2][1] * p[1] + cam_to_rgb[2][2] * p[2];
         
         p[0] = r;
         p[1] = g;

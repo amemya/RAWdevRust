@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 
 mod color;
 mod dcp;
@@ -21,6 +21,16 @@ struct Cli {
     /// DCP Profile (Optional)
     #[arg(long)]
     dcp: Option<PathBuf>,
+
+    /// Output Color Space
+    #[arg(long, value_enum, default_value_t = ColorSpaceOpt::Srgb)]
+    color_space: ColorSpaceOpt,
+}
+
+#[derive(ValueEnum, Clone, Debug)]
+enum ColorSpaceOpt {
+    Srgb,
+    DisplayP3,
 }
 
 fn main() {
@@ -36,9 +46,15 @@ fn main() {
     // デモザイク（RCD）→ linear Camera RGB
     let mut linear = demosaic::rcd::run(&raw);
 
+    // カラースペースの選択
+    let target_color_space = match cli.color_space {
+        ColorSpaceOpt::Srgb => color::TargetColorSpace::Srgb,
+        ColorSpaceOpt::DisplayP3 => color::TargetColorSpace::DisplayP3,
+    };
+
     let apply_default_pipeline = |pixels: &mut [f32]| {
         color::apply_wb(pixels, &raw.wb_coeffs);
-        color::apply_color_matrix(pixels, &raw.cam_to_xyz, raw.cam_illuminant);
+        color::apply_color_matrix(pixels, &raw.cam_to_xyz, raw.cam_illuminant, target_color_space);
     };
 
     // カラーパイプライン (in-place処理により中間Vecアロケーションを削減)
@@ -51,7 +67,7 @@ fn main() {
         println!("Loading DCP profile: {:?}", path);
         match dcp::load_dcp(&path) {
             Ok(profile) => {
-                if let Err(e) = color::apply_dcp(&mut linear, &profile, &raw.wb_coeffs) {
+                if let Err(e) = color::apply_dcp(&mut linear, &profile, &raw.wb_coeffs, target_color_space) {
                     eprintln!("Failed to apply DCP: {}. Falling back to default.", e);
                     apply_default_pipeline(&mut linear);
                 }
@@ -70,14 +86,20 @@ fn main() {
 
     // 出力フォーマットの出し分け
     let ext = cli.output.extension().and_then(|e| e.to_str()).unwrap_or("");
-    if ext.eq_ignore_ascii_case("ppm") {
-        output::save_ppm(&rgb, raw.width, raw.height, &cli.output).expect("Failed to write PPM output");
+    let final_output = if ext == "" || ext.eq_ignore_ascii_case("ppm") {
+        let out_path = cli.output.with_extension("ppm");
+        output::save_ppm(&rgb, raw.width, raw.height, &out_path).expect("Failed to write PPM output");
+        out_path
     } else if ext.eq_ignore_ascii_case("png") {
-        output::save_png(&rgb, raw.width, raw.height, &cli.output, &raw.exif).expect("Failed to write PNG output");
+        output::save_png(&rgb, raw.width, raw.height, &cli.output, &raw.exif, target_color_space).expect("Failed to write PNG output");
+        cli.output.clone()
     } else {
-        eprintln!("Error: Unsupported output extension '{}'. Please use .ppm or .png.", ext);
-        std::process::exit(1);
-    }
+        eprintln!("Unsupported output extension: {}", ext);
+        eprintln!("Writing as PPM by default...");
+        let out_path = cli.output.with_extension("ppm");
+        output::save_ppm(&rgb, raw.width, raw.height, &out_path).expect("Failed to write PPM output");
+        out_path
+    };
 
-    println!("Done: {:?}", cli.output);
+    println!("Done: {:?}", final_output);
 }

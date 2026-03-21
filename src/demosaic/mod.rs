@@ -3,7 +3,7 @@ pub mod rcd;
 
 /// リニア値（[0,1]）を sRGB ガンマ変換して u8 に変換する共通関数
 #[inline]
-pub fn linear_to_srgb(v: f32) -> u8 {
+pub fn apply_srgb_transfer_curve(v: f32) -> u8 {
     let c = if v <= 0.0031308 {
         12.92 * v
     } else {
