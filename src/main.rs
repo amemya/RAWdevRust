@@ -30,7 +30,7 @@ struct Cli {
 #[derive(ValueEnum, Clone, Debug)]
 enum ColorSpaceOpt {
     Srgb,
-    P3,
+    DisplayP3,
 }
 
 fn main() {
@@ -49,7 +49,7 @@ fn main() {
     // カラースペースの選択
     let target_color_space = match cli.color_space {
         ColorSpaceOpt::Srgb => color::TargetColorSpace::Srgb,
-        ColorSpaceOpt::P3 => color::TargetColorSpace::DisplayP3,
+        ColorSpaceOpt::DisplayP3 => color::TargetColorSpace::DisplayP3,
     };
 
     let apply_default_pipeline = |pixels: &mut [f32]| {

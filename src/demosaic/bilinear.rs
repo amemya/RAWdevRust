@@ -58,9 +58,9 @@ pub fn run(raw: &RawData) -> Vec<u8> {
         let rv = (r_interp[i] * wb_r).clamp(0.0, 1.0);
         let gv = g_interp[i].clamp(0.0, 1.0);
         let bv = (b_interp[i] * wb_b).clamp(0.0, 1.0);
-        out.push(linear_to_srgb(rv));
-        out.push(linear_to_srgb(gv));
-        out.push(linear_to_srgb(bv));
+        out.push(apply_srgb_transfer_curve(rv));
+        out.push(apply_srgb_transfer_curve(gv));
+        out.push(apply_srgb_transfer_curve(bv));
     }
     out
 }
