@@ -111,7 +111,7 @@ pub fn apply_color_matrix(
     }
 }
 
-/// Step 3: linear sRGB → sRGB ガンマ変換 + u8 変換
+/// Step 3: linear Target RGB → sRGB伝達関数（ガンマ）適用 + u8 変換
 pub fn apply_gamma(pixels: &[f32]) -> Vec<u8> {
     let mut out = Vec::with_capacity(pixels.len());
     out.extend(pixels.iter().map(|&v| apply_srgb_transfer_curve(v)));
